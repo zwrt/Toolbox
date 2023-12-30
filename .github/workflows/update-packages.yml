@@ -45,6 +45,7 @@ jobs:
     - name: Upload Packages
       run: |
         cd $FILE_PATH
+        Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
-        git commit -m "Update $(date +%Y-%m-%d" "%H:%M:%S)"
+        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
         git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/djzng/openwrt-packages.git" HEAD:$BRANCH
