@@ -1,7 +1,7 @@
 #!/bin/bash
 
 shopt -s extglob
-rm -rfv !(README.md|packages.sh)
+rm -rfv !(LICENSE|README.md|packages.sh)
 shopt -u extglob
 
 function git_sparse_clone() {
