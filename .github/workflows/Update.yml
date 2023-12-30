@@ -34,16 +34,16 @@ jobs:
       run: |
         sudo timedatectl set-timezone "Asia/Shanghai"
         mkdir -p artifacts  # 创建一个目录用于存放打包后的文件
-        git clone --depth=1 --branch=main https://github.com/rvvu/OpenWrt.git
+        git clone --depth=1 --branch=main https://github.com/djzng/OpenWrt.git
         mv OpenWrt OpenWrt-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/OpenWrt-$(date +%Y%m%d).zip OpenWrt-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/Toolbox.git
+        git clone --depth=1 --branch=main https://github.com/djzng/Toolbox.git
         mv Toolbox Toolbox-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/Toolbox-$(date +%Y%m%d).zip Toolbox-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/kernel.git
+        git clone --depth=1 --branch=main https://github.com/djzng/kernel.git
         mv kernel kernel-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/kernel-$(date +%Y%m%d).zip kernel-$(date +%Y%m%d)
-        git clone --depth=1 --branch=master https://github.com/rvvu/openwrt-packages.git
+        git clone --depth=1 --branch=master https://github.com/djzng/openwrt-packages.git
         mv openwrt-packages openwrt-packages-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/openwrt-packages-$(date +%Y%m%d).zip openwrt-packages-$(date +%Y%m%d)
 
