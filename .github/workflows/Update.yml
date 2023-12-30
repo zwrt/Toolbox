@@ -43,6 +43,9 @@ jobs:
         git clone --depth=1 --branch=main https://github.com/djzng/kernel.git
         mv kernel kernel-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/kernel-$(date +%Y%m%d).zip kernel-$(date +%Y%m%d)
+        git clone --depth=1 --branch=master https://github.com/djzng/packages.git
+        mv packages packages-$(date +%Y%m%d)
+        zip -r $GITHUB_WORKSPACE/artifacts/packages-$(date +%Y%m%d).zip packages-$(date +%Y%m%d)
         git clone --depth=1 --branch=Files https://github.com/djzng/IPTV.git
         mv IPTV IPTV-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/IPTV-$(date +%Y%m%d).zip IPTV-$(date +%Y%m%d)
@@ -79,6 +82,14 @@ jobs:
         echo "Zip files: ${zip_files}"
         chmod +x $GITHUB_WORKSPACE/file/aliupload.py
         python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/kernel" --file "${zip_files}"
+
+    - name: Upload packages
+      run: | 
+        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
+        zip_files=$(find $GITHUB_WORKSPACE/artifacts/packages* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
+        echo "Zip files: ${zip_files}"
+        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
+        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/packages" --file "${zip_files}"
 
     - name: Upload IPTV
       run: | 
