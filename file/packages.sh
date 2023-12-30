@@ -38,6 +38,7 @@ svn export https://github.com/lisaac/luci-app-dockerman/trunk/applications/luci-
 svn export https://github.com/vernesong/OpenClash/branches/dev/luci-app-openclash ./luci-app-openclash
 git clone https://github.com/linkease/nas-packages-luci && mv -n nas-packages-luci/luci/luci-app-linkease ./ ; rm -rf nas-packages-luci
 git clone https://github.com/linkease/nas-packages && mv -n nas-packages/network/services/linkease ./ ; rm -rf nas-packages
+wget -O ./long https://raw.githubusercontent.com/hkpc/openit/main/long
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
 rm -rf ./*/.svn & rm -rf ./*/.github & rm -rf ./*/.gitignore
