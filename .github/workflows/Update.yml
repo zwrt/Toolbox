@@ -34,31 +34,25 @@ jobs:
       run: |
         sudo timedatectl set-timezone "Asia/Shanghai"
         mkdir -p artifacts  # 创建一个目录用于存放打包后的文件
-        git clone --depth=1 --branch=main https://github.com/rvvu/OpenWrt.git
+        git clone --depth=1 --branch=main https://github.com/djzng/OpenWrt.git
         mv OpenWrt OpenWrt-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/OpenWrt-$(date +%Y%m%d).zip OpenWrt-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/Toolbox.git
+        git clone --depth=1 --branch=main https://github.com/djzng/Toolbox.git
         mv Toolbox Toolbox-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/Toolbox-$(date +%Y%m%d).zip Toolbox-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/kernel.git
+        git clone --depth=1 --branch=main https://github.com/djzng/kernel.git
         mv kernel kernel-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/kernel-$(date +%Y%m%d).zip kernel-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/Autoproxy.git
-        mv Autoproxy Autoproxy-$(date +%Y%m%d)
-        zip -r $GITHUB_WORKSPACE/artifacts/Autoproxy-$(date +%Y%m%d).zip Autoproxy-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/openit.git
-        mv openit openit-$(date +%Y%m%d)
-        zip -r $GITHUB_WORKSPACE/artifacts/openit-$(date +%Y%m%d).zip openit-$(date +%Y%m%d)
-        git clone --depth=1 --branch=Files https://github.com/rvvu/IPTV.git
+        git clone --depth=1 --branch=Files https://github.com/djzng/IPTV.git
         mv IPTV IPTV-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/IPTV-$(date +%Y%m%d).zip IPTV-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/rvvu/javbus.git
+        git clone --depth=1 --branch=main https://github.com/djzng/javbus.git
         mv javbus javbus-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/javbus-$(date +%Y%m%d).zip javbus-$(date +%Y%m%d)
-        git clone --depth=1 --branch=master https://github.com/rvvu/op-ipk.git
+        git clone --depth=1 --branch=master https://github.com/djzng/op-ipk.git
         mv op-ipk op-ipk-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/op-ipk-$(date +%Y%m%d).zip op-ipk-$(date +%Y%m%d)
-        git clone --depth=1 --branch=master https://github.com/rvvu/openwrt-packages.git
+        git clone --depth=1 --branch=master https://github.com/djzng/openwrt-packages.git
         mv openwrt-packages openwrt-packages-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/openwrt-packages-$(date +%Y%m%d).zip openwrt-packages-$(date +%Y%m%d)
 
@@ -85,22 +79,6 @@ jobs:
         echo "Zip files: ${zip_files}"
         chmod +x $GITHUB_WORKSPACE/file/aliupload.py
         python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/kernel" --file "${zip_files}"
-
-    - name: Upload Autoproxy
-      run: | 
-        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
-        zip_files=$(find $GITHUB_WORKSPACE/artifacts/Autoproxy* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
-        echo "Zip files: ${zip_files}"
-        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
-        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/Autoproxy" --file "${zip_files}"
-
-    - name: Upload openit
-      run: | 
-        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
-        zip_files=$(find $GITHUB_WORKSPACE/artifacts/openit* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
-        echo "Zip files: ${zip_files}"
-        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
-        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/openit" --file "${zip_files}"
 
     - name: Upload IPTV
       run: | 
