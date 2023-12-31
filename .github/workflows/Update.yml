@@ -34,25 +34,25 @@ jobs:
       run: |
         sudo timedatectl set-timezone "Asia/Shanghai"
         mkdir -p artifacts  # 创建一个目录用于存放打包后的文件
-        git clone --depth=1 --branch=main https://github.com/djzng/OpenWrt.git
+        git clone --depth=1 --branch=main https://github.com/zwrt/OpenWrt.git
         mv OpenWrt OpenWrt-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/OpenWrt-$(date +%Y%m%d).zip OpenWrt-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/djzng/Toolbox.git
+        git clone --depth=1 --branch=main https://github.com/zwrt/Toolbox.git
         mv Toolbox Toolbox-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/Toolbox-$(date +%Y%m%d).zip Toolbox-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/djzng/kernel.git
+        git clone --depth=1 --branch=main https://github.com/zwrt/kernel.git
         mv kernel kernel-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/kernel-$(date +%Y%m%d).zip kernel-$(date +%Y%m%d)
-        git clone --depth=1 --branch=master https://github.com/djzng/packages.git
+        git clone --depth=1 --branch=master https://github.com/zwrt/packages.git
         mv packages packages-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/packages-$(date +%Y%m%d).zip packages-$(date +%Y%m%d)
-        git clone --depth=1 --branch=Files https://github.com/djzng/IPTV.git
+        git clone --depth=1 --branch=Files https://github.com/zwrt/IPTV.git
         mv IPTV IPTV-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/IPTV-$(date +%Y%m%d).zip IPTV-$(date +%Y%m%d)
-        git clone --depth=1 --branch=main https://github.com/djzng/javbus.git
+        git clone --depth=1 --branch=main https://github.com/zwrt/javbus.git
         mv javbus javbus-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/javbus-$(date +%Y%m%d).zip javbus-$(date +%Y%m%d)
-        git clone --depth=1 --branch=master https://github.com/djzng/openwrt-packages.git
+        git clone --depth=1 --branch=master https://github.com/zwrt/openwrt-packages.git
         mv openwrt-packages openwrt-packages-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/openwrt-packages-$(date +%Y%m%d).zip openwrt-packages-$(date +%Y%m%d)
 
