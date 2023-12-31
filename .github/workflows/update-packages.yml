@@ -35,7 +35,7 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE
         chmod +x $SCRIPT
-        git clone -b $BRANCH https://github.com/djzng/openwrt-packages.git
+        git clone -b $BRANCH https://github.com/zwrt/openwrt-packages.git
         cd openwrt-packages
         git rm -r --cache * >/dev/null 2>&1
         rm -rf `find ./* -maxdepth 0 -type d ! -name "diy"` >/dev/null 2>&1
@@ -48,4 +48,4 @@ jobs:
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
         git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
-        git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/djzng/openwrt-packages.git" HEAD:$BRANCH
+        git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/openwrt-packages.git" HEAD:$BRANCH
