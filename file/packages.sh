@@ -36,6 +36,8 @@ git clone https://github.com/messense/aliyundrive-webdav aliyundrive && mv -n al
 git clone https://github.com/sbwml/luci-app-alist openwrt-alist && mv -n openwrt-alist/*alist ./ ; rm -rf openwrt-alist
 svn export https://github.com/lisaac/luci-app-dockerman/trunk/applications/luci-app-dockerman ./luci-app-dockerman
 svn export https://github.com/vernesong/OpenClash/branches/dev/luci-app-openclash ./luci-app-openclash
+git clone https://github.com/linkease/nas-packages-luci && mv -n nas-packages-luci/luci/luci-app-linkease ./ ; rm -rf nas-packages-luci
+git clone https://github.com/linkease/nas-packages && mv -n nas-packages/multimedia/ffmpeg-remux ./ ; rm -rf nas-packages
 wget -O ./long https://raw.githubusercontent.com/hkpc/openit/main/long
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
