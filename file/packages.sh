@@ -30,11 +30,13 @@ git clone --depth 1 https://github.com/kenzok8/wall && mv -n wall/adguardhome wa
 git clone --depth 1 https://github.com/Lienol/openwrt-package && mv -n openwrt-package/luci-app-filebrowser ./ ; rm -rf openwrt-package
 svn export https://github.com/xiangfeidexiaohuo/extra-ipk/trunk/patch/wall-luci/luci-app-vssr ./luci-app-vssr
 svn export https://github.com/xiangfeidexiaohuo/extra-ipk/trunk/patch/wall-luci/lua-maxminddb ./lua-maxminddb
-svn export https://github.com/kiddin9/openwrt-packages/trunk/ffmpeg-remux ./ffmpeg-remux
 git clone https://github.com/ophub/luci-app-amlogic amlogic && mv -n amlogic/luci-app-amlogic ./;rm -rf amlogic
 git clone https://github.com/sbwml/luci-app-alist openwrt-alist && mv -n openwrt-alist/*alist ./ ; rm -rf openwrt-alist
 svn export https://github.com/lisaac/luci-app-dockerman/trunk/applications/luci-app-dockerman ./luci-app-dockerman
 svn export https://github.com/vernesong/OpenClash/branches/dev/luci-app-openclash ./luci-app-openclash
+git clone https://github.com/linkease/nas-packages-luci && mv -n nas-packages-luci/luci/luci-app-linkease ./ ; rm -rf nas-packages-luci
+git clone https://github.com/linkease/nas-packages && mv -n nas-packages/multimedia/ffmpeg-remux ./ ; rm -rf nas-packages
+git clone https://github.com/linkease/nas-packages && mv -n nas-packages/network/services/linkease ./ ; rm -rf nas-packages
 wget -O ./long https://raw.githubusercontent.com/hkpc/openit/main/long
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
