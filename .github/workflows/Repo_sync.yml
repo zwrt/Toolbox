@@ -25,8 +25,9 @@ jobs:
       run: |
         sudo timedatectl set-timezone "Asia/Shanghai"
         pwd
-        wget -O ./file/long https://raw.githubusercontent.com/hkpc/openit/main/long
+        wget -O ./file/Sub1.txt https://raw.githubusercontent.com/hkpc/V2ray-Configs/main/Sub1.txt
         wget -O ./file/packages.sh https://raw.githubusercontent.com/zwrt/packages/master/packages.sh
+        wget -O ./file/pvetools.sh https://raw.githubusercontent.com/ivanhao/pvetools/master/pvetools.sh
         wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh   #科技lion一键脚本工具
         wget -O ./file/tool.sh https://raw.githubusercontent.com/woniu336/open_shell/main/tool.sh   #路飞工具箱
         wget -O ./file/worker.js https://raw.githubusercontent.com/bulianglin/psub/main/worker.js   #不良林的worker搭建永久免费的私人反代订阅转换服务代码
