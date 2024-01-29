@@ -55,6 +55,15 @@ jobs:
         git clone --depth=1 --branch=master https://github.com/zwrt/openwrt-packages.git
         mv openwrt-packages openwrt-packages-$(date +%Y%m%d)
         zip -r $GITHUB_WORKSPACE/artifacts/openwrt-packages-$(date +%Y%m%d).zip openwrt-packages-$(date +%Y%m%d)
+        git clone --depth=1 --branch=main https://github.com/hkpc/V2ray-Configs.git
+        mv V2ray-Configs V2ray-Configs-$(date +%Y%m%d)
+        zip -r $GITHUB_WORKSPACE/artifacts/V2ray-Configs-$(date +%Y%m%d).zip V2ray-Configs-$(date +%Y%m%d)
+        git clone --depth=1 --branch=main https://github.com/hkpc/Autoproxy.git
+        mv Autoproxy Autoproxy-$(date +%Y%m%d)
+        zip -r $GITHUB_WORKSPACE/artifacts/Autoproxy-$(date +%Y%m%d).zip Autoproxy-$(date +%Y%m%d)
+        git clone --depth=1 --branch=main https://github.com/hkpc/openit.git
+        mv openit openit-$(date +%Y%m%d)
+        zip -r $GITHUB_WORKSPACE/artifacts/openit-$(date +%Y%m%d).zip openit-$(date +%Y%m%d)
 
     - name: Upload OpenWrt
       run: | 
@@ -111,3 +120,27 @@ jobs:
         echo "Zip files: ${zip_files}"
         chmod +x $GITHUB_WORKSPACE/file/aliupload.py
         python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/openwrt-packages" --file "${zip_files}"
+
+    - name: Upload V2ray-Configs
+      run: | 
+        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
+        zip_files=$(find $GITHUB_WORKSPACE/artifacts/V2ray-Configs* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
+        echo "Zip files: ${zip_files}"
+        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
+        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/V2ray-Configs" --file "${zip_files}"
+
+    - name: Upload Autoproxy
+      run: | 
+        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
+        zip_files=$(find $GITHUB_WORKSPACE/artifacts/Autoproxy* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
+        echo "Zip files: ${zip_files}"
+        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
+        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/Autoproxy" --file "${zip_files}"
+
+    - name: Upload openit
+      run: | 
+        echo "请自动忽略META-INF文件夹。" > $GITHUB_WORKSPACE/artifacts/忽略META-INF文件夹.txt
+        zip_files=$(find $GITHUB_WORKSPACE/artifacts/openit* -name '*.zip' -type f -print | tr '\n' ';' | sed 's/;$//')
+        echo "Zip files: ${zip_files}"
+        chmod +x $GITHUB_WORKSPACE/file/aliupload.py
+        python $GITHUB_WORKSPACE/file/aliupload.py --token "${{ secrets.ALIYUN_TOKEN }}" --uploadFloder "GitHub/openit" --file "${zip_files}"
