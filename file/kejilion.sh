@@ -106,11 +106,9 @@ check_port() {
 install_add_docker() {
     if [ -f "/etc/alpine-release" ]; then
         apk update
-        apk add docker
+        apk add docker docker-compose
         rc-update add docker default
         service docker start
-        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
     else
         curl -fsSL https://get.docker.com | sh && ln -s /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin
         systemctl start docker
@@ -1229,8 +1227,7 @@ case $choice in
               case "$choice" in
                 [Yy])
                   docker rm $(docker ps -a -q) && docker rmi $(docker images -q) && docker network prune
-                  remove docker docker-ce > /dev/null 2>&1
-                  rm -rf /var/lib/docker
+                  remove docker docker-ce docker-compose > /dev/null 2>&1
                   ;;
                 [Nn])
                   ;;
