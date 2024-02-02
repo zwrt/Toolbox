@@ -25,7 +25,7 @@ jobs:
       run: |
         sudo timedatectl set-timezone "Asia/Shanghai"
         pwd
-        wget -O ./file/IPTV.m3u https://raw.githubusercontent.com/zwrt/IPTV/Files/IPTV.m3u
+        wget -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
         wget -O ./file/packages.sh https://raw.githubusercontent.com/zwrt/packages/master/packages.sh
         wget -O ./file/pvetools.sh https://raw.githubusercontent.com/ivanhao/pvetools/master/pvetools.sh
         wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh   #科技lion一键脚本工具
