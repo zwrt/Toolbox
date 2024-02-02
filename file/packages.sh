@@ -37,7 +37,7 @@ git clone --depth 1 -b dev https://github.com/vernesong/OpenClash && mv -n OpenC
 git clone --depth 1 https://github.com/linkease/nas-packages-luci && mv -n nas-packages-luci/luci/luci-app-linkease ./ ; rm -rf nas-packages-luci
 git clone --depth 1 https://github.com/linkease/nas-packages && mv -n nas-packages/multimedia/ffmpeg-remux ./ ; rm -rf nas-packages
 git clone --depth 1 https://github.com/linkease/nas-packages && mv -n nas-packages/network/services/linkease ./ ; rm -rf nas-packages
-wget -O ./IPTV.m3u https://raw.githubusercontent.com/zwrt/IPTV/Files/IPTV.m3u
+wget -O ./hosts https://raw.githubusercontent.com/zwrt/hosts/main/hosts
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
 rm -rf ./*/.svn & rm -rf ./*/.github & rm -rf ./*/.gitignore
