@@ -2,17 +2,15 @@
 
 sh_v="2.5.0"
 
-
-huang='\033[1;33m'
+huang='\033[33m'
 bai='\033[0m'
 lv='\033[0;32m'
 lan='\033[0;34m'
-hong='\033[0;31m'
+hong='\033[31m'
 kjlan='\033[96m'
 hui='\e[37m'
 
-
-ln -sf ~/kejilion.sh /usr/local/bin/k
+cp ./kejilion.sh /usr/local/bin/k > /dev/null 2>&1
 
 
 ip_address() {
