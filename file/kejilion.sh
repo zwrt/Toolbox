@@ -1420,8 +1420,9 @@ case $choice in
       echo "6. Dcoker卷管理 ▶"
       echo "------------------------"
       echo "7. 清理无用的docker容器和镜像网络数据卷"
+      echo "8. 更换Dcoker源"
       echo "------------------------"
-      echo "8. 卸载Dcoker环境"
+      echo "9. 卸载Dcoker环境"
       echo "------------------------"
       echo "0. 返回主菜单"
       echo "------------------------"
@@ -1739,6 +1740,11 @@ case $choice in
               ;;
           8)
               clear
+              bash <(curl -sSL https://linuxmirrors.cn/docker.sh)
+              ;;
+
+          9)
+              clear
               read -p "$(echo -e "${hong}确定卸载docker环境吗？(Y/N): ${bai}")" choice
               case "$choice" in
                 [Yy])
@@ -1752,9 +1758,9 @@ case $choice in
                   ;;
               esac
               ;;
+
           0)
               kejilion
-
               ;;
           *)
               echo "无效的输入!"
