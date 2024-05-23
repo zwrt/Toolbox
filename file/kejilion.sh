@@ -4173,7 +4173,7 @@ case $choice in
       echo "10. 10号工作区"
       echo "11. 自定义工作区"
       echo "------------------------"
-      echo "99. 工作区状态"
+      echo "99. 工作区状态管理"
       echo "------------------------"
       echo "0. 返回主菜单"
       echo "------------------------"
@@ -4245,15 +4245,39 @@ case $choice in
 
           11)
               clear
-              read -p "请输入您自定义的工作区名称（1001 kj001 work10）: " SESSION_NAME
               install tmux
+              clear
+              echo "当前已存在的工作区列表"
+              echo "------------------------"
+              tmux list-sessions
+              echo "------------------------"
+              read -p "请输入您自定义的工作区名称，如1001 kj001 work10: " SESSION_NAME
               tmux_run
               ;;
 
           99)
+            while true; do
               clear
-              install tmux
+              echo "当前已存在的工作区列表"
+              echo "------------------------"
               tmux list-sessions
+              echo "------------------------"
+
+              read -p "1. 删除指定工作区    0. 退出: " gongzuoqu_del
+              case "$gongzuoqu_del" in
+                1)
+                  read -p "请输入要删除的工作区名称: " gongzuoqu_name
+                  tmux kill-window -t $gongzuoqu_name
+                  ;;
+                0)
+                  break
+                  ;;
+                *)
+                  echo "无效的选择，请输入 Y 或 N。"
+                  ;;
+              esac
+            done
+
               ;;
           0)
               kejilion
