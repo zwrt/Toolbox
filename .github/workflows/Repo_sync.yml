@@ -30,6 +30,8 @@ jobs:
         wget -O ./file/pvetools.sh https://raw.githubusercontent.com/ivanhao/pvetools/master/pvetools.sh
         wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh   #科技lion一键脚本工具
         wget -O ./file/tool.sh https://raw.githubusercontent.com/woniu336/open_shell/main/tool.sh   #路飞工具箱
+        wget -O ./file/install-passwall.sh https://raw.githubusercontent.com/cooip-jm/About-openwrt/main/install-passwall.sh   #openwrt安装passwall 仅限ARM
+        wget -O ./file/install-openclash.sh https://raw.githubusercontent.com/cooip-jm/About-openwrt/main/openclash-install.sh   #openwrt安装openclash
         wget -O ./file/worker.js https://raw.githubusercontent.com/bulianglin/psub/main/worker.js   #不良林的worker搭建永久免费的私人反代订阅转换服务代码
         wget -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh   #DD重装系统脚本
         git clone --depth=1 --branch=master https://github.com/ACL4SSR/ACL4SSR.git && cp -R ACL4SSR/Clash/config . && rm -rf ACL4SSR/
