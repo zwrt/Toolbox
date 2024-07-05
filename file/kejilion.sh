@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sh_v="2.6.6"
+sh_v="2.6.7"
 
 huang='\033[33m'
 bai='\033[0m'
@@ -30,6 +30,7 @@ install() {
 
     for package in "$@"; do
         if ! command -v "$package" &>/dev/null; then
+            echo "正在安装 $package..."
             if command -v dnf &>/dev/null; then
                 dnf -y update && dnf install -y "$package"
             elif command -v yum &>/dev/null; then
@@ -42,6 +43,8 @@ install() {
                 echo "未知的包管理器!"
                 return 1
             fi
+        else
+            echo "$package 已经安装。"
         fi
     done
 
@@ -62,6 +65,7 @@ remove() {
     fi
 
     for package in "$@"; do
+        echo "正在卸载 $package..."
         if command -v dnf &>/dev/null; then
             dnf remove -y "${package}*"
         elif command -v yum &>/dev/null; then
@@ -1126,7 +1130,225 @@ clear
 
 
 
+dd_xitong() {
+        dd_xitong_1() {
+          echo -e "重装后初始用户名: ${huang}root${bai}  初始密码: ${huang}LeitboGi0ro${bai}  初始端口: ${huang}22${bai}"
+          echo -e "按任意键继续..."
+          read -n 1 -s -r -p ""
+          install wget
+          wget --no-check-certificate -qO InstallNET.sh 'https://raw.githubusercontent.com/leitbogioro/Tools/master/Linux_reinstall/InstallNET.sh' && chmod a+x InstallNET.sh
+        }
 
+        dd_xitong_2() {
+          echo -e "重装后初始用户名: ${huang}Administrator${bai}  初始密码: ${huang}Teddysun.com${bai}  初始端口: ${huang}3389${bai}"
+          echo -e "按任意键继续..."
+          read -n 1 -s -r -p ""
+          install wget
+          wget --no-check-certificate -qO InstallNET.sh 'https://raw.githubusercontent.com/leitbogioro/Tools/master/Linux_reinstall/InstallNET.sh' && chmod a+x InstallNET.sh
+        }
+
+        dd_xitong_3() {
+          echo -e "重装后初始用户名: ${huang}root${bai}  初始密码: ${huang}123@@@${bai}  初始端口: ${huang}22${bai}"
+          echo -e "按任意键继续..."
+          read -n 1 -s -r -p ""
+          curl -O https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh
+        }
+
+        dd_xitong_4() {
+          echo -e "重装后初始用户名: ${huang}Administrator${bai}  初始密码: ${huang}123@@@${bai}  初始端口: ${huang}3389${bai}"
+          echo -e "按任意键继续..."
+          read -n 1 -s -r -p ""
+          curl -O https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh
+        }
+
+          while true; do
+            root_use
+            echo "请备份数据，将为你重装系统，预计花费15分钟。"
+            echo -e "${hui}感谢MollyLau大佬和bin456789大佬的脚本支持！${bai} "
+            echo "------------------------"
+            echo "1. Debian 12"
+            echo "2. Debian 11"
+            echo "3. Debian 10"
+            echo "4. Debian 9"
+            echo "------------------------"
+            echo "11. Ubuntu 24.04"
+            echo "12. Ubuntu 22.04"
+            echo "13. Ubuntu 20.04"
+            echo "14. Ubuntu 18.04"
+            echo "------------------------"
+            echo "21. CentOS 9"
+            echo "22. CentOS 8"
+            echo "23. CentOS 7"
+            echo "------------------------"
+            echo "31. Alpine Linux"
+            echo "32. Rocky Linux"
+            echo "33. Alma Linux"
+            echo "34. Fedora Linux"
+            echo "------------------------"
+            echo "41. Windows 11"
+            echo "42. Windows 10"
+            echo "43. Windows 7"
+            echo "44. Windows Server 2022"
+            echo "45. Windows Server 2019"
+            echo "46. Windows Server 2016"
+            echo "------------------------"
+            echo "0. 返回上一级选单"
+            echo "------------------------"
+            read -p "请选择要重装的系统: " sys_choice
+            case "$sys_choice" in
+              1)
+                dd_xitong_1
+                bash InstallNET.sh -debian 12
+                reboot
+                exit
+                ;;
+              2)
+                dd_xitong_1
+                bash InstallNET.sh -debian 11
+                reboot
+                exit
+                ;;
+              3)
+                dd_xitong_1
+                bash InstallNET.sh -debian 10
+                reboot
+                exit
+                ;;
+              4)
+                dd_xitong_1
+                bash InstallNET.sh -debian 9
+                reboot
+                exit
+                ;;
+              11)
+                dd_xitong_1
+                bash InstallNET.sh -ubuntu 24.04
+                reboot
+                exit
+                ;;
+              12)
+                dd_xitong_1
+                bash InstallNET.sh -ubuntu 22.04
+                reboot
+                exit
+                ;;
+              13)
+                dd_xitong_1
+                bash InstallNET.sh -ubuntu 20.04
+                reboot
+                exit
+                ;;
+              14)
+                dd_xitong_1
+                bash InstallNET.sh -ubuntu 18.04
+                reboot
+                exit
+                ;;
+              21)
+                dd_xitong_1
+                bash InstallNET.sh -centos 9
+                reboot
+                exit
+                ;;
+              22)
+                dd_xitong_1
+                bash InstallNET.sh -centos 8
+                reboot
+                exit
+                ;;
+              23)
+                dd_xitong_1
+                bash InstallNET.sh -centos 7
+                reboot
+                exit
+                ;;
+              31)
+                dd_xitong_1
+                bash InstallNET.sh -alpine
+                reboot
+                exit
+                ;;
+              32)
+                dd_xitong_1
+                bash InstallNET.sh -rockylinux
+                reboot
+                exit
+                ;;
+              33)
+                dd_xitong_3
+                bash reinstall.sh alma
+                reboot
+                exit
+                ;;
+              34)
+                dd_xitong_3
+                bash reinstall.sh fedora
+                reboot
+                exit
+                ;;
+              41)
+                dd_xitong_2
+                bash InstallNET.sh -windows 11 -lang "cn"
+                reboot
+                exit
+                ;;
+              42)
+                dd_xitong_2
+                bash InstallNET.sh -windows 10 -lang "cn"
+                reboot
+                exit
+                ;;
+              43)
+                dd_xitong_4
+                URL="https://massgrave.dev/windows_7_links"
+                web_content=$(wget -q -O - "$URL")
+                iso_link=$(echo "$web_content" | grep -oP '(?<=href=")[^"]*cn[^"]*windows_7[^"]*professional[^"]*x64[^"]*\.iso')
+                # bash reinstall.sh windows --image-name 'Windows 7 Professional' --lang zh-cn
+                # bash reinstall.sh windows --iso='$iso_link' --image-name='Windows 7 PROFESSIONAL'
+                bash reinstall.sh windows --iso="$iso_link" --image-name='Windows 7 PROFESSIONAL'
+                reboot
+                exit
+                ;;
+              44)
+                dd_xitong_4
+                URL="https://massgrave.dev/windows_server_links"
+                web_content=$(wget -q -O - "$URL")
+                iso_link=$(echo "$web_content" | grep -oP '(?<=href=")[^"]*cn[^"]*windows_server[^"]*2022[^"]*x64[^"]*\.iso')
+                bash reinstall.sh windows --iso="$iso_link" --image-name='Windows Server 2022 SERVERDATACENTER'
+                reboot
+                exit
+                ;;
+              45)
+                dd_xitong_2
+                bash InstallNET.sh -windows 2019 -lang "cn"
+                reboot
+                exit
+                ;;
+              46)
+                dd_xitong_2
+                bash InstallNET.sh -windows 2016 -lang "cn"
+                reboot
+                exit
+                ;;
+              0)
+                break
+                ;;
+              *)
+                echo "无效的选择，请重新输入。"
+                break
+                ;;
+            esac
+          done
+}
+
+
+
+
+
+
+
+
+kejilion_sh() {
 while true; do
 clear
 
@@ -4748,241 +4970,7 @@ EOF
               ;;
 
           8)
-
-          dd_xitong_1() {
-            echo -e "重装后初始用户名: ${huang}root${bai}  初始密码: ${huang}LeitboGi0ro${bai}  初始端口: ${huang}22${bai}"
-            echo -e "按任意键继续..."
-            read -n 1 -s -r -p ""
-            install wget
-            wget --no-check-certificate -qO InstallNET.sh 'https://raw.githubusercontent.com/leitbogioro/Tools/master/Linux_reinstall/InstallNET.sh' && chmod a+x InstallNET.sh
-          }
-
-          dd_xitong_2() {
-            echo -e "重装后初始用户名: ${huang}Administrator${bai}  初始密码: ${huang}Teddysun.com${bai}  初始端口: ${huang}3389${bai}"
-            echo -e "按任意键继续..."
-            read -n 1 -s -r -p ""
-            install wget
-            wget --no-check-certificate -qO InstallNET.sh 'https://raw.githubusercontent.com/leitbogioro/Tools/master/Linux_reinstall/InstallNET.sh' && chmod a+x InstallNET.sh
-          }
-
-          dd_xitong_3() {
-            echo -e "重装后初始用户名: ${huang}root${bai}  初始密码: ${huang}123@@@${bai}  初始端口: ${huang}22${bai}"
-            echo -e "按任意键继续..."
-            read -n 1 -s -r -p ""
-            curl -O https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh
-          }
-
-          dd_xitong_4() {
-            echo -e "重装后初始用户名: ${huang}Administrator${bai}  初始密码: ${huang}123@@@${bai}  初始端口: ${huang}3389${bai}"
-            echo -e "按任意键继续..."
-            read -n 1 -s -r -p ""
-            curl -O https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh
-          }
-
-
-
-            while true; do
-              root_use
-              echo "请备份数据，将为你重装系统，预计花费15分钟。"
-              echo -e "${hui}感谢MollyLau大佬和bin456789大佬的脚本支持！${bai} "
-              echo "------------------------"
-              echo "1. Debian 12"
-              echo "2. Debian 11"
-              echo "3. Debian 10"
-              echo "4. Debian 9"
-              echo "------------------------"
-              echo "11. Ubuntu 24.04"
-              echo "12. Ubuntu 22.04"
-              echo "13. Ubuntu 20.04"
-              echo "14. Ubuntu 18.04"
-              echo "------------------------"
-              echo "21. CentOS 9"
-              echo "22. CentOS 8"
-              echo "23. CentOS 7"
-              echo "------------------------"
-              echo "31. Alpine Linux"
-              echo "32. Rocky Linux"
-              echo "33. Alma Linux"
-              echo "34. Fedora Linux"
-              echo "------------------------"
-              echo "41. Windows 11"
-              echo "42. Windows 10"
-              echo "43. Windows 7"
-              echo "44. Windows Server 2022"
-              echo "45. Windows Server 2019"
-              echo "46. Windows Server 2016"
-              echo "------------------------"
-              echo "0. 返回上一级选单"
-              echo "------------------------"
-              read -p "请选择要重装的系统: " sys_choice
-
-              case "$sys_choice" in
-                1)
-                  dd_xitong_1
-                  bash InstallNET.sh -debian 12
-                  reboot
-                  exit
-                  ;;
-
-                2)
-                  dd_xitong_1
-                  bash InstallNET.sh -debian 11
-                  reboot
-                  exit
-                  ;;
-
-                3)
-                  dd_xitong_1
-                  bash InstallNET.sh -debian 10
-                  reboot
-                  exit
-                  ;;
-                4)
-                  dd_xitong_1
-                  bash InstallNET.sh -debian 9
-                  reboot
-                  exit
-                  ;;
-
-                11)
-                  dd_xitong_1
-                  bash InstallNET.sh -ubuntu 24.04
-                  reboot
-                  exit
-                  ;;
-                12)
-                  dd_xitong_1
-                  bash InstallNET.sh -ubuntu 22.04
-                  reboot
-                  exit
-                  ;;
-
-                13)
-                  dd_xitong_1
-                  bash InstallNET.sh -ubuntu 20.04
-                  reboot
-                  exit
-                  ;;
-                14)
-                  dd_xitong_1
-                  bash InstallNET.sh -ubuntu 18.04
-                  reboot
-                  exit
-                  ;;
-
-
-                21)
-                  dd_xitong_1
-                  bash InstallNET.sh -centos 9
-                  reboot
-                  exit
-                  ;;
-
-
-                22)
-                  dd_xitong_1
-                  bash InstallNET.sh -centos 8
-                  reboot
-                  exit
-                  ;;
-
-                23)
-                  dd_xitong_1
-                  bash InstallNET.sh -centos 7
-                  reboot
-                  exit
-                  ;;
-
-                31)
-                  dd_xitong_1
-                  bash InstallNET.sh -alpine
-                  reboot
-                  exit
-                  ;;
-
-                32)
-                  dd_xitong_1
-                  bash InstallNET.sh -rockylinux
-                  reboot
-                  exit
-                  ;;
-
-                33)
-                  dd_xitong_3
-                  bash reinstall.sh alma
-                  reboot
-                  exit
-                  ;;
-
-                34)
-                  dd_xitong_3
-                  bash reinstall.sh fedora
-                  reboot
-                  exit
-                  ;;
-
-                41)
-                  dd_xitong_2
-                  bash InstallNET.sh -windows 11 -lang "cn"
-                  reboot
-                  exit
-                  ;;
-
-                42)
-                  dd_xitong_2
-                  bash InstallNET.sh -windows 10 -lang "cn"
-                  reboot
-                  exit
-                  ;;
-
-                43)
-                  dd_xitong_4
-                  URL="https://massgrave.dev/windows_7_links"
-                  web_content=$(wget -q -O - "$URL")
-                  iso_link=$(echo "$web_content" | grep -oP '(?<=href=")[^"]*cn[^"]*windows_7[^"]*professional[^"]*x64[^"]*\.iso')
-                  # bash reinstall.sh windows --image-name 'Windows 7 Professional' --lang zh-cn
-                  # bash reinstall.sh windows --iso='$iso_link' --image-name='Windows 7 PROFESSIONAL'
-                  bash reinstall.sh windows --iso="$iso_link" --image-name='Windows 7 PROFESSIONAL'
-
-                  reboot
-                  exit
-                  ;;
-
-                44)
-                  dd_xitong_4
-                  URL="https://massgrave.dev/windows_server_links"
-                  web_content=$(wget -q -O - "$URL")
-                  iso_link=$(echo "$web_content" | grep -oP '(?<=href=")[^"]*cn[^"]*windows_server[^"]*2022[^"]*x64[^"]*\.iso')
-                  bash reinstall.sh windows --iso="$iso_link" --image-name='Windows Server 2022 SERVERDATACENTER'
-                  reboot
-                  exit
-                  ;;
-
-                45)
-                  dd_xitong_2
-                  bash InstallNET.sh -windows 2019 -lang "cn"
-                  reboot
-                  exit
-                  ;;
-
-                46)
-                  dd_xitong_2
-                  bash InstallNET.sh -windows 2016 -lang "cn"
-                  reboot
-                  exit
-                  ;;
-
-                0)
-                  break
-                  ;;
-
-                *)
-                  echo "无效的选择，请重新输入。"
-                  break
-                  ;;
-              esac
-            done
-
+            dd_xitong
               ;;
           9)
             root_use
@@ -6107,7 +6095,7 @@ EOF
                   chmod +x ~/TG-SSH-check-notify.sh
 
                   # 添加到 ~/.profile 文件中
-                  if ! grep -q 'bash ~/TG-SSH-check-notify.sh' ~/.profile; then
+                  if ! grep -q 'bash ~/TG-SSH-check-notify.sh' ~/.profile > /dev/null 2>&1; then
                       echo 'bash ~/TG-SSH-check-notify.sh' >> ~/.profile
                   fi
 
@@ -6501,3 +6489,39 @@ EOF
 esac
     break_end
 done
+
+}
+
+
+
+
+if [ "$#" -eq 0 ]; then
+    # 如果没有参数，运行交互式逻辑
+    kejilion_sh
+else
+    # 如果有参数，执行相应函数
+    case $1 in
+        install|add|安装)
+            shift
+            install "$@"
+            ;;
+        remove|del|卸载)
+            shift
+            remove "$@"
+            ;;
+        update|更新)
+            linux_update
+            ;;
+        clean|清理)
+            linux_clean
+            ;;
+        dd|重装)
+            dd_xitong
+            ;;
+        *)
+            echo "无效参数"
+            ;;
+    esac
+fi
+
+
