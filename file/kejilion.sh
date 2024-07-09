@@ -14,7 +14,7 @@ cp ./kejilion.sh /usr/local/bin/k > /dev/null 2>&1
 
 
 
-# 收集功能埋点信息的函数，记录时间，系统发行版，国家和用户使用的功能名称，绝对不涉及任何敏感信息，请放心！请相信我！
+# 收集功能埋点信息的函数，记录当前脚本版本号，使用时间，系统版本，国家和用户使用的功能名称，绝对不涉及任何敏感信息，请放心！请相信我！
 # 为什么要设计这个功能，目的更好的了解用户喜欢使用的功能，进一步优化功能推出更多符合用户需求的功能。
 # 全文可搜搜 send_stats 函数调用位置，透明开源，如有顾虑可拒绝使用。
 
@@ -23,9 +23,8 @@ send_stats() {
     os_info=$(grep PRETTY_NAME /etc/os-release | cut -d '=' -f2 | tr -d '"')
     curl -s -X POST "https://api.kejilion.pro/api/log" \
          -H "Content-Type: application/json" \
-         -d "{\"action\":\"$1\",\"timestamp\":\"$(date -u '+%Y-%m-%d %H:%M:%S')\",\"country\":\"$country\",\"os_info\":\"$os_info\"}" &>/dev/null &
+         -d "{\"action\":\"$1\",\"timestamp\":\"$(date -u '+%Y-%m-%d %H:%M:%S')\",\"country\":\"$country\",\"os_info\":\"$os_info\",\"version\":\"$sh_v\"}" &>/dev/null &
 }
-
 
 
 ip_address() {
@@ -6257,7 +6256,6 @@ EOF
               root_use
               send_stats "修复SSH高危漏洞"
               cd ~
-              install wget
               curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/upgrade_openssh9.8p1.sh
               chmod +x ~/upgrade_openssh9.8p1.sh
               ~/upgrade_openssh9.8p1.sh
@@ -6395,7 +6393,7 @@ EOF
               yinsiyuanquan1
               echo "隐私与安全"
               echo "脚本将收集用户使用功能的数据，优化脚本体验，制作更多好玩好用的功能"
-              echo "将收集使用功能的时间，系统版本，国家和使用的功能的名称，不会涉及敏感数据，放心使用！"
+              echo "将收集脚本版本号，使用的时间，系统版本，国家和使用的功能的名称，不会涉及敏感数据，放心使用！"
               echo "------------------------------------------------"
               echo -e "当前状态: $status_message"
               echo "--------------------"
