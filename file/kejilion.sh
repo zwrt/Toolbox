@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sh_v="2.7.0"
+sh_v="2.7.1"
 
 huang='\033[33m'
 bai='\033[0m'
@@ -1754,9 +1754,6 @@ case $choice in
 
 
     swap_info=$(free -m | awk 'NR==3{used=$3; total=$2; if (total == 0) {percentage=0} else {percentage=used*100/total}; printf "%dMB/%dMB (%d%%)", used, total, percentage}')
-
-
-    swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
 
     runtime=$(cat /proc/uptime | awk -F. '{run_days=int($1 / 86400);run_hours=int(($1 % 86400) / 3600);run_minutes=int(($1 % 3600) / 60); if (run_days > 0) printf("%d天 ", run_days); if (run_hours > 0) printf("%d时 ", run_hours); printf("%d分\n", run_minutes)}')
 
@@ -5424,13 +5421,8 @@ EOF
             swap_used=$(free -m | awk 'NR==3{print $3}')
             swap_total=$(free -m | awk 'NR==3{print $2}')
 
-            if [ "$swap_total" -eq 0 ]; then
-              swap_percentage=0
-            else
-              swap_percentage=$((swap_used * 100 / swap_total))
-            fi
 
-            swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
+            swap_info=$(free -m | awk 'NR==3{used=$3; total=$2; if (total == 0) {percentage=0} else {percentage=used*100/total}; printf "%dMB/%dMB (%d%%)", used, total, percentage}')
 
             echo "当前虚拟内存: $swap_info"
 
@@ -6816,6 +6808,7 @@ EOF
                 else
                     curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh && chmod +x kejilion.sh
                 fi
+                CheckFirstRun_true
                 yinsiyuanquan2
                 cp ./kejilion.sh /usr/local/bin/k > /dev/null 2>&1
                 echo -e "${lv}脚本已更新到最新版本！${huang}v$sh_v_new${bai}"
