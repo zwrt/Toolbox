@@ -306,7 +306,7 @@ install_add_docker_guanfang() {
 country=$(curl -s ipinfo.io/country)
 if [ "$country" = "CN" ]; then
     cd ~
-    curl -sS -O https://raw.gitmirror.com/kejilion/docker/main/install && chmod +x install
+    curl -sS -O https://raw.githubusercontent.com/kejilion/docker/main/install && chmod +x install
     sh install --mirror Aliyun
     rm -f install
     cat > /etc/docker/daemon.json << EOF
@@ -2069,6 +2069,14 @@ optimize_high_performance() {
 
     echo -e "${lv}优化CPU设置...${bai}"
     sysctl -w kernel.sched_autogroup_enabled=0 2>/dev/null
+
+    echo -e "${lv}其他优化...${bai}"
+    # 禁用透明大页面，减少延迟
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    # 禁用 NUMA balancing
+    sysctl -w kernel.numa_balancing=0 2>/dev/null
+
+
 }
 
 # 均衡模式优化函数
@@ -2102,6 +2110,14 @@ optimize_balanced() {
 
     echo -e "${lv}优化CPU设置...${bai}"
     sysctl -w kernel.sched_autogroup_enabled=1 2>/dev/null
+
+    echo -e "${lv}其他优化...${bai}"
+    # 还原透明大页面
+    echo always > /sys/kernel/mm/transparent_hugepage/enabled
+    # 还原 NUMA balancing
+    sysctl -w kernel.numa_balancing=1 2>/dev/null
+
+
 }
 
 # 还原默认设置函数
@@ -2135,6 +2151,13 @@ restore_defaults() {
 
     echo -e "${lv}还原CPU设置...${bai}"
     sysctl -w kernel.sched_autogroup_enabled=1 2>/dev/null
+
+    echo -e "${lv}还原其他优化...${bai}"
+    # 还原透明大页面
+    echo always > /sys/kernel/mm/transparent_hugepage/enabled
+    # 还原 NUMA balancing
+    sysctl -w kernel.numa_balancing=1 2>/dev/null
+
 }
 
 
@@ -2171,7 +2194,58 @@ optimize_web_server() {
     echo -e "${lv}优化CPU设置...${bai}"
     sysctl -w kernel.sched_autogroup_enabled=0 2>/dev/null
 
+    echo -e "${lv}其他优化...${bai}"
+    # 禁用透明大页面，减少延迟
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    # 禁用 NUMA balancing
+    sysctl -w kernel.numa_balancing=0 2>/dev/null
+
+
 }
+
+
+# 直播推流优化函数
+optimize_live_streaming() {
+    echo -e "${lv}切换到直播推流优化模式...${bai}"
+
+    echo -e "${lv}优化文件描述符...${bai}"
+    ulimit -n 65536
+
+    echo -e "${lv}优化虚拟内存...${bai}"
+    sysctl -w vm.swappiness=10 2>/dev/null
+    sysctl -w vm.dirty_ratio=15 2>/dev/null
+    sysctl -w vm.dirty_background_ratio=5 2>/dev/null
+    sysctl -w vm.overcommit_memory=1 2>/dev/null
+    sysctl -w vm.min_free_kbytes=65536 2>/dev/null
+
+    echo -e "${lv}优化网络设置...${bai}"
+    sysctl -w net.core.rmem_max=16777216 2>/dev/null
+    sysctl -w net.core.wmem_max=16777216 2>/dev/null
+    sysctl -w net.core.netdev_max_backlog=250000 2>/dev/null
+    sysctl -w net.core.somaxconn=4096 2>/dev/null
+    sysctl -w net.ipv4.tcp_rmem='4096 87380 16777216' 2>/dev/null
+    sysctl -w net.ipv4.tcp_wmem='4096 65536 16777216' 2>/dev/null
+    sysctl -w net.ipv4.tcp_congestion_control=htcp 2>/dev/null
+    sysctl -w net.ipv4.tcp_max_syn_backlog=8192 2>/dev/null
+    sysctl -w net.ipv4.tcp_tw_reuse=1 2>/dev/null
+    sysctl -w net.ipv4.ip_local_port_range='1024 65535' 2>/dev/null
+
+    echo -e "${lv}优化缓存管理...${bai}"
+    sysctl -w vm.vfs_cache_pressure=50 2>/dev/null
+
+    echo -e "${lv}优化CPU设置...${bai}"
+    sysctl -w kernel.sched_autogroup_enabled=0 2>/dev/null
+
+    echo -e "${lv}其他优化...${bai}"
+    # 禁用透明大页面，减少延迟
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    # 禁用 NUMA balancing
+    sysctl -w kernel.numa_balancing=0 2>/dev/null
+}
+
+
+
+
 
 
 
@@ -7050,13 +7124,14 @@ EOF
               send_stats "Linux内核调优管理"
               echo -e "Linux系统内核参数优化 ${huang}测试版${bai}"
               echo "------------------------------------------------"
-              echo "提供三种系统配置模式：高性能模式、均衡模式和还原默认设置。用户可以通过执行相应的命令快速切换系统配置。"
-              echo -e "${huang}提示: ${bai}生产环境请谨慎调优！"
+              echo "提供多种系统参数调优模式，用户可以根据自身使用场景进行选择切换。"
+              echo -e "${huang}提示: ${bai}生产环境请谨慎使用！"
               echo "--------------------"
               echo "1. 高性能优化模式：     最大化系统性能，优化文件描述符、虚拟内存、网络设置、缓存管理和CPU设置。"
               echo "2. 均衡优化模式：       在性能与资源消耗之间取得平衡，适合日常使用。"
               echo "3. 网站优化模式：       针对网站服务器进行优化，提高并发连接处理能力、响应速度和整体性能。"
-              echo "4. 还原默认设置：       将系统设置还原为默认配置。"
+              echo "4. 直播优化模式：       针对直播推流的特殊需求进行优化，减少延迟，提高传输性能，"
+              echo "5. 还原默认设置：       将系统设置还原为默认配置。"
               echo "--------------------"
               echo "0. 返回上一级"
               echo "--------------------"
@@ -7084,6 +7159,13 @@ EOF
                       break_end
                       ;;
                   4)
+                      cd ~
+                      clear
+                      optimize_live_streaming
+                      send_stats "直播推流优化"
+                      break_end
+                      ;;
+                  5)
                       cd ~
                       clear
                       restore_defaults
@@ -7539,7 +7621,7 @@ EOF
                 clear
                 country=$(curl -s ipinfo.io/country)
                 if [ "$country" = "CN" ]; then
-                    curl -sS -O https://raw.gitmirror.com/kejilion/sh/main/cn/kejilion.sh && chmod +x kejilion.sh
+                    curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/cn/kejilion.sh && chmod +x kejilion.sh
                 else
                     curl -sS -O https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh && chmod +x kejilion.sh
                 fi
