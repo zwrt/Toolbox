@@ -7850,7 +7850,7 @@ linux_file() {
         echo "当前路径"
         pwd
         echo "------------------------"
-        ls -x
+        ls --color=auto -x
         echo "------------------------"
         echo "1.  进入目录           2.  创建目录             3.  修改目录权限         4.  重命名目录"
         echo "5.  删除目录           6.  返回上一级目录"
@@ -7858,7 +7858,8 @@ linux_file() {
         echo "11. 创建文件           12. 编辑文件             13. 修改文件权限         14. 重命名文件"
         echo "15. 删除文件"
         echo "------------------------"
-        echo "21. 压缩文件目录       22. 解压文件目录"
+        echo "21. 压缩文件目录       22. 解压文件目录         23. 移动文件目录         24. 移动文件目录"
+        echo "25. 传文件至其他服务器"
         echo "------------------------"
         echo "0.  返回上一级"
         echo "------------------------"
@@ -7936,6 +7937,99 @@ linux_file() {
                 tar -xzvf "$filename" && echo "已解压 $filename" || echo "解压失败"
                 send_stats "解压文件/目录"
                 ;;
+
+            23) # 移动文件或目录
+                read -p "请输入要移动的文件或目录路径: " src_path
+                if [ ! -e "$src_path" ]; then
+                    echo "错误: 文件或目录不存在。"
+                    send_stats "移动文件或目录失败: 文件或目录不存在"
+                    continue
+                fi
+
+                read -p "请输入目标路径 (包括新文件名或目录名): " dest_path
+                if [ -z "$dest_path" ]; then
+                    echo "错误: 请输入目标路径。"
+                    send_stats "移动文件或目录失败: 目标路径未指定"
+                    continue
+                fi
+
+                mv "$src_path" "$dest_path" && echo "文件或目录已移动到 $dest_path" || echo "移动文件或目录失败"
+                send_stats "移动文件或目录"
+                ;;
+
+
+           24) # 复制文件目录
+                read -p "请输入要复制的文件或目录路径: " src_path
+                if [ ! -e "$src_path" ]; then
+                    echo "错误: 文件或目录不存在。"
+                    send_stats "复制文件或目录失败: 文件或目录不存在"
+                    continue
+                fi
+
+                read -p "请输入目标路径 (包括新文件名或目录名): " dest_path
+                if [ -z "$dest_path" ]; then
+                    echo "错误: 请输入目标路径。"
+                    send_stats "复制文件或目录失败: 目标路径未指定"
+                    continue
+                fi
+
+                # 使用 -r 选项以递归方式复制目录
+                cp -r "$src_path" "$dest_path" && echo "文件或目录已复制到 $dest_path" || echo "复制文件或目录失败"
+                send_stats "复制文件或目录"
+                ;;
+
+
+             25) # 传送文件至远端服务器
+                read -p "请输入要传送的文件路径: " file_to_transfer
+                if [ ! -f "$file_to_transfer" ]; then
+                    echo "错误: 文件不存在。"
+                    send_stats "传送文件失败: 文件不存在"
+                    continue
+                fi
+
+                read -p "请输入远端服务器IP: " remote_ip
+                if [ -z "$remote_ip" ]; then
+                    echo "错误: 请输入远端服务器IP。"
+                    send_stats "传送文件失败: 未输入远端服务器IP"
+                    continue
+                fi
+
+                read -p "请输入远端服务器用户名 (默认root): " remote_user
+                remote_user=${remote_user:-root}
+
+                read -p "请输入远端服务器密码: " -s remote_password
+                echo
+                if [ -z "$remote_password" ]; then
+                    echo "错误: 请输入远端服务器密码。"
+                    send_stats "传送文件失败: 未输入远端服务器密码"
+                    continue
+                fi
+
+                read -p "请输入登录端口 (默认22): " remote_port
+                remote_port=${remote_port:-22}
+
+                # 清除已知主机的旧条目
+                ssh-keygen -f "/root/.ssh/known_hosts" -R "$remote_ip"
+                sleep 2  # 等待时间
+
+                # 使用scp传输文件
+                scp -P "$remote_port" -o StrictHostKeyChecking=no "$file_to_transfer" "$remote_user@$remote_ip:/home/" <<EOF
+$remote_password
+EOF
+
+                if [ $? -eq 0 ]; then
+                    echo "文件已传送至远程服务器home目录。"
+                    send_stats "文件传送成功"
+                else
+                    echo "文件传送失败。"
+                    send_stats "文件传送失败"
+                fi
+
+                break_end
+                ;;
+
+
+
             0)  # 返回上一级
                 send_stats "返回上一级菜单"
                 break
