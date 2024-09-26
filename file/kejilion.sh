@@ -2992,7 +2992,7 @@ linux_trash() {
   root_use
   send_stats "系统回收站"
   local bashrc_profile
-  if command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+  if command -v dnf &>/dev/null || command -v yum &>/dev/null || command -v apt &>/dev/null; then
 	bashrc_profile="/root/.bashrc"
   else
 	bashrc_profile="/root/.profile"
@@ -3006,11 +3006,13 @@ linux_trash() {
 	if alias rm 2>/dev/null | grep -q "trash"; then
 	  trash_status="${gl_lv}已启用${gl_bai}"
 	else
-	  trash_status="${gl_lv}未启用${gl_bai}"
+	  trash_status="${hui}未启用${gl_bai}"
 	fi
 
 	clear
 	echo -e "当前回收站 ${trash_status}"
+	echo -e "启用后rm删除的文件先进入回收站，防止误删重要文件！"
+	echo "------------------------------------------------"
 	ls "$TRASH_DIR" 2>/dev/null || echo "回收站为空"
 	echo "------------------------"
 	echo "1. 启用回收站          2. 关闭回收站"
@@ -3039,7 +3041,6 @@ linux_trash() {
 		;;
 	  3)
 		echo "当前回收站内容:"
-		ls "$TRASH_DIR" 2>/dev/null || echo "回收站为空"
 		read -e -p "输入要还原的文件名: " file_to_restore
 		if [ -e "$TRASH_DIR/$file_to_restore" ]; then
 		  mv "$TRASH_DIR/$file_to_restore" "$HOME/"
@@ -8708,6 +8709,8 @@ echo "更新系统            k update | k 更新"
 echo "清理系统垃圾        k clean | k 清理"
 echo "打开重装系统面板    k dd | k 重装"
 echo "打开bbr3控制面板    k bbr3 | k bbrv3"
+echo "打开内核调优面膜    k nhyh | k 内核优化"
+echo "打开系统回收站      k trash | k 回收站"
 echo "软件启动            k start sshd | k 启动 sshd "
 echo "软件停止            k stop sshd | k 停止 sshd "
 echo "软件重启            k restart sshd | k 重启 sshd "
@@ -8758,6 +8761,9 @@ else
 			;;
 		nhyh|内核优化)
 			Kernel_optimize
+			;;
+		trash|回收站)
+			linux_trash
 			;;
 		status|状态)
 			shift
@@ -8832,5 +8838,3 @@ else
 			;;
 	esac
 fi
-
-
