@@ -2145,6 +2145,7 @@ EOF
 
 	# 输出生成的信息
 	ip_address
+	echo "------------------------"
 	echo "客户端部署时需要用的参数"
 	echo "服务IP: $ipv4_address"
 	echo "token: $token"
@@ -2154,7 +2155,7 @@ EOF
 	echo "FRP面板用户名: $dashboard_user"
 	echo "FRP面板密码: $dashboard_pwd"
 	echo
-
+	echo "------------------------"
 	install tmux
 	tmux kill-session -t frps >/dev/null 2>&1
 	tmux new -d -s "frps" "cd /home/frp/frp_0.61.0_linux_amd64 && ./frps -c frps.toml"
@@ -7362,7 +7363,7 @@ linux_panel() {
 						echo "FRP服务端已经更新完成"
 						;;
 					3)
-						crontab -l | grep -v 'frpc' | crontab - > /dev/null 2>&1
+						crontab -l | grep -v 'frps' | crontab - > /dev/null 2>&1
 						tmux kill-session -t frps >/dev/null 2>&1
 						rm -rf /home/frp
 						echo "应用已卸载"
