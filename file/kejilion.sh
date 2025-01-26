@@ -1440,19 +1440,12 @@ block_container_port() {
 		echo "规则已存在：放行 IP $allowed_ip 访问 $container_ip，跳过添加。"
 	fi
 
-	if ! iptables -C DOCKER-USER -p tcp -s 127.18.0.0/16 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		echo "放行本地网络 127.18.0.0/16 访问 $container_ip"
-		iptables -I DOCKER-USER -p tcp -s 127.18.0.0/16 -d "$container_ip" -j ACCEPT
+	# 检查并放行本地网络 127.0.0.0/8
+	if ! iptables -C DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
+		echo "放行本地网络 127.0.0.0/8 访问 $container_ip"
+		iptables -I DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
 	else
-		echo "规则已存在：放行本地网络 127.18.0.0/16 访问 $container_ip，跳过添加。"
-	fi
-
-	# 检查并放行本地网络 127.0.0.0/16
-	if ! iptables -C DOCKER-USER -p tcp -s 127.0.0.0/16 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		echo "放行本地网络 127.0.0.0/16 访问 $container_ip"
-		iptables -I DOCKER-USER -p tcp -s 127.0.0.0/16 -d "$container_ip" -j ACCEPT
-	else
-		echo "规则已存在：放行本地网络 127.0.0.0/16 访问 $container_ip，跳过添加。"
+		echo "规则已存在：放行本地网络 127.0.0.0/8 访问 $container_ip，跳过添加。"
 	fi
 
 	echo "规则已成功添加到 DOCKER-USER 链。"
@@ -1460,8 +1453,10 @@ block_container_port() {
 
 
 
+
 clear_container_rules() {
 	local container_name_or_id=$1
+	local allowed_ip=$2
 
 	# 获取容器的 IP 地址
 	local container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name_or_id")
@@ -1473,13 +1468,32 @@ clear_container_rules() {
 
 	echo "容器 $container_name_or_id 的 IP 地址为: $container_ip"
 
-	# 删除与该容器 IP 相关的所有规则
-	iptables-save | grep -v "$container_ip" | iptables-restore
+	# 清除封禁其他所有 IP 的规则
+	if iptables -C DOCKER-USER -p tcp -d "$container_ip" -j DROP &>/dev/null; then
+		echo "清除封禁其他所有 IP 访问 $container_ip 的规则"
+		iptables -D DOCKER-USER -p tcp -d "$container_ip" -j DROP
+	else
+		echo "规则不存在：封禁其他所有 IP 访问 $container_ip，无需清除。"
+	fi
+
+	# 清除放行指定 IP 的规则
+	if iptables -C DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT &>/dev/null; then
+		echo "清除放行 IP $allowed_ip 访问 $container_ip 的规则"
+		iptables -D DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT
+	else
+		echo "规则不存在：放行 IP $allowed_ip 访问 $container_ip，无需清除。"
+	fi
+
+	# 清除放行本地网络 127.0.0.0/8 的规则
+	if iptables -C DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
+		echo "清除放行本地网络 127.0.0.0/8 访问 $container_ip 的规则"
+		iptables -D DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
+	else
+		echo "规则不存在：放行本地网络 127.0.0.0/8 访问 $container_ip，无需清除。"
+	fi
 
 	echo "所有与容器 IP $container_ip 相关的规则已清除。"
 }
-
-
 
 
 
@@ -1555,12 +1569,12 @@ while true; do
 
 		7)
 			send_stats "允许IP访问 ${docker_name}"
-			block_container_port "$docker_name"
+			clear_container_rules "$docker_name" "$ipv4_address"
 			;;
 
 		8)
 			send_stats "阻止IP访问 ${docker_name}"
-			clear_container_rules "$docker_name" "$ipv4_address"
+			block_container_port "$docker_name" "$ipv4_address"
 			;;
 
 		*)
@@ -7067,9 +7081,11 @@ linux_panel() {
 					check_docker_app_ip
 				fi
 				echo ""
-
 				echo "------------------------"
-				echo "1. 使用           2. 域名访问           3. 删除域名访问"
+				echo "1. 使用"
+				echo "------------------------"
+				echo "5. 域名访问           6. 删除域名访问"
+				echo "7. 允许IP访问         8. 阻止IP访问"
 				echo "------------------------"
 				echo "0. 返回上一级"
 				echo "------------------------"
@@ -7083,16 +7099,26 @@ linux_panel() {
 						local docker_port=$(docker port $docker_name | awk -F'[:]' '/->/ {print $NF}' | uniq)
 						check_docker_app_ip
 						;;
-					2)
+					5)
 						echo "${docker_name}域名访问设置"
 						send_stats "${docker_name}域名访问设置"
 						add_yuming
 						ldnmp_Proxy ${yuming} ${ipv4_address} ${docker_port}
 						;;
 
-					3)
+					6)
 						echo "域名格式 example.com 不带https://"
 						web_del
+						;;
+
+					7)
+						send_stats "允许IP访问 ${docker_name}"
+						clear_container_rules "$docker_name" "$ipv4_address"
+						;;
+
+					8)
+						send_stats "阻止IP访问 ${docker_name}"
+						block_container_port "$docker_name" "$ipv4_address"
 						;;
 
 					*)
@@ -7329,12 +7355,12 @@ linux_panel() {
 
 					7)
 						send_stats "允许IP访问 ${docker_name}"
-						block_container_port "$docker_name"
+						clear_container_rules "$docker_name" "$ipv4_address"
 						;;
 
 					8)
 						send_stats "阻止IP访问 ${docker_name}"
-						clear_container_rules "$docker_name" "$ipv4_address"
+						block_container_port "$docker_name" "$ipv4_address"
 						;;
 
 
@@ -7472,12 +7498,12 @@ linux_panel() {
 
 					7)
 						send_stats "允许IP访问 ${docker_name}"
-						block_container_port "$docker_name"
+						clear_container_rules "$docker_name" "$ipv4_address"
 						;;
 
 					8)
 						send_stats "阻止IP访问 ${docker_name}"
-						clear_container_rules "$docker_name" "$ipv4_address"
+						block_container_port "$docker_name" "$ipv4_address"
 						;;
 
 
@@ -8087,7 +8113,7 @@ linux_panel() {
 		  47)
 			send_stats "普罗米修斯监控"
 
-			local docker_name=prometheus
+			local docker_name=grafana
 			local docker_port=8047
 			while true; do
 				check_docker_app
@@ -8162,14 +8188,13 @@ linux_panel() {
 
 					7)
 						send_stats "允许IP访问 ${docker_name}"
-						block_container_port "$docker_name"
+						clear_container_rules "$docker_name" "$ipv4_address"
 						;;
 
 					8)
 						send_stats "阻止IP访问 ${docker_name}"
-						clear_container_rules "$docker_name" "$ipv4_address"
+						block_container_port "$docker_name" "$ipv4_address"
 						;;
-
 
 
 
