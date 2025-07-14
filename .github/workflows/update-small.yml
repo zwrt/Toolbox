@@ -42,7 +42,18 @@ jobs:
         $GITHUB_WORKSPACE/$SCRIPT
         echo "FILE_PATH=$PWD" >> $GITHUB_ENV
 
+    - name: Check for changes
+      id: changes
+      run: |
+        cd $FILE_PATH
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Upload Packages
+      if: steps.changes.outputs.changes == 'true'
       run: |
         cd $FILE_PATH
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
