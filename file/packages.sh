@@ -28,9 +28,7 @@ mv -n luci-app-adguardhome \
       luci-app-linkease \
       luci-app-nikki \
       luci-app-openclash \
-      luci-app-passwall \
       luci-app-quickstart \
-      luci-app-ssr-plus \
       luci-app-store ../ && \
 cd .. && \
 rm -rf small-package
