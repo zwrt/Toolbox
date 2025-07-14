@@ -45,10 +45,6 @@ jobs:
     - name: Upload Packages
       run: |
         cd "$FILE_PATH"
-        if [ -z "$(git status --porcelain)" ]; then
-            echo "没有文件变更，无需提交"
-            exit 0
-        else
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
         git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
