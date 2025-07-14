@@ -22,14 +22,10 @@ rm -rf $1
 
 git clone --depth 1 https://github.com/kenzok8/small-package && \
 cd small-package && \
-mv -n luci-app-adguardhome \
-      luci-app-argon-config \
-      luci-app-homeproxy \
-      luci-app-linkease \
-      luci-app-nikki \
-      luci-app-openclash \
+mv -n luci-app-nikki \
+      luci-app-store \
       luci-app-quickstart \
-      luci-app-store ../ && \
+      luci-app-linkease ../ && \
 cd .. && \
 rm -rf small-package
 
