@@ -26,7 +26,7 @@ jobs:
         keep_minimum_runs: 3
 
     - name: Set Git Identity
-      run : |
+      run: |
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Actions"
         sudo timedatectl set-timezone "Asia/Shanghai"
@@ -42,18 +42,20 @@ jobs:
         $GITHUB_WORKSPACE/$SCRIPT
         echo "FILE_PATH=$PWD" >> $GITHUB_ENV
 
-    - name: Check for changes
-      id: changes
+    - name: Check if changes exist
+      id: check_changes
       run: |
         cd $FILE_PATH
-        if [ -n "$(git status --porcelain)" ]; then
-          echo "changes=true" >> $GITHUB_OUTPUT
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "::set-output name=has_changes::false"
+          echo "✅ 没有文件变动，跳过提交"
         else
-          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "::set-output name=has_changes::true"
+          echo "🔄 检测到文件变动，准备提交"
         fi
 
     - name: Upload Packages
-      if: steps.changes.outputs.changes == 'true'
+      if: steps.check_changes.outputs.has_changes == 'true'
       run: |
         cd $FILE_PATH
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
