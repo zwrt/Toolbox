@@ -16,7 +16,11 @@ rm -rf $1
 }
 git clone --depth 1 https://github.com/kenzok8/small-package && \
 cd small-package && \
-mv -n luci-app-nikki \
+mv -n nikki \
+      linkease \
+      quickstart \
+      luci-lib-taskd \
+      luci-app-nikki \
       luci-app-store \
       luci-app-quickstart \
       luci-app-linkease ../ && \
