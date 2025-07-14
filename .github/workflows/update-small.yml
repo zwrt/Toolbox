@@ -66,4 +66,4 @@ jobs:
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
         git commit -m "${Emoji[$((RANDOM % ${#Emoji[@]}))]} Sync $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')${Emoji[$((RANDOM % ${#Emoji[@]}))]}"
-        git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/small-package.git" HEAD:"$BRANCH"
+        git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/small-package.git" HEAD:$BRANCH
