@@ -17,7 +17,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4  # 使用最新版 checkout
+      uses: actions/checkout@main
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2
@@ -26,7 +26,7 @@ jobs:
         keep_minimum_runs: 3
 
     - name: Set Git Identity
-      run: |
+      run : |
         git config --global user.email "actions@github.com"
         git config --global user.name "GitHub Actions"
         sudo timedatectl set-timezone "Asia/Shanghai"
@@ -34,36 +34,18 @@ jobs:
     - name: Update Packages
       run: |
         cd $GITHUB_WORKSPACE
-        chmod +x "$SCRIPT"
-        git clone -b "$BRANCH" https://github.com/zwrt/small-package.git
+        chmod +x $SCRIPT
+        git clone -b $BRANCH https://github.com/zwrt/small-package.git
         cd small-package
-        git rm -r --cache . >/dev/null 2>&1 || true  # 避免缓存清理失败导致中断
-        find . -mindepth 1 -maxdepth 1 ! -name "diy" -exec rm -rf {} + >/dev/null 2>&1 || true
-        "$GITHUB_WORKSPACE/$SCRIPT"
-        echo "FILE_PATH=$(pwd)" >> $GITHUB_ENV
-
-    - name: Check for changes
-      id: check_changes
-      run: |
-        cd "$FILE_PATH"
-        if [ -n "$(git status --porcelain)" ]; then
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "🔄 检测到文件变动，准备提交"
-        else
-          echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          echo "✅ 没有文件变动，跳过提交"
-        fi
+        git rm -r --cache * >/dev/null 2>&1
+        rm -rf `find ./* -maxdepth 0 -type d ! -name "diy"` >/dev/null 2>&1
+        $GITHUB_WORKSPACE/$SCRIPT
+        echo "FILE_PATH=$PWD" >> $GITHUB_ENV
 
     - name: Upload Packages
-      if: steps.check_changes.outputs.has_changes == 'true'
       run: |
         cd "$FILE_PATH"
-        # 再次检查是否有变动，避免缓存问题
-        if [ -z "$(git status --porcelain)" ]; then
-          echo "⚠️ 再次检查时未发现变动，跳过提交"
-          exit 0
-        fi
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
-        git commit -m "${Emoji[$((RANDOM % ${#Emoji[@]}))]} Sync $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')${Emoji[$((RANDOM % ${#Emoji[@]}))]}"
+        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
         git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/small-package.git" HEAD:$BRANCH
