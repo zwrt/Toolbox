@@ -3,7 +3,7 @@ name: Update Small
 on:
   workflow_dispatch:
   schedule:
-    - cron: 30 * * * *
+    - cron: 30 16 * * *
   watch:
     types: started
 
