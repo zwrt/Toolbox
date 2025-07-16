@@ -32,3 +32,5 @@ rm -rf small-package
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
 rm -rf ./*/.svn & rm -rf ./*/.github & rm -rf ./*/.gitignore
+wget -O ./hosts https://raw.githubusercontent.com/zwrt/hosts/refs/heads/main/hosts
+wget -O ./IPTV.m3u https://raw.githubusercontent.com/zwrt/IPTV/refs/heads/Files/IPTV.m3u
