@@ -47,5 +47,9 @@ jobs:
         cd "$FILE_PATH"
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         git add .
-        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
-        git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/openwrt-packages.git" HEAD:$BRANCH
+        if git status --porcelain | grep .; then
+          git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
+          git push --quiet "https://${{ secrets.GH_TOKEN }}@github.com/zwrt/openwrt-packages.git" HEAD:$BRANCH
+        else
+          echo "No changes to commit."
+        fi
