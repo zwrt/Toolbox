@@ -40,4 +40,6 @@ sed -i 's/+libcap /+libcap +libcap-bin /' luci-app-openclash/Makefile
 
 rm -rf ./*/.git ./*/.gitattributes ./*/.svn ./*/.github ./*/.gitignore
 #find . -type f -name Makefile -exec sed -i 's/PKG_BUILD_FLAGS:=no-mips16/PKG_USE_MIPS16:=0/g' {} +
+wget -O ./hosts https://raw.githubusercontent.com/zwrt/hosts/refs/heads/main/hosts
+wget -O ./IPTV.m3u https://raw.githubusercontent.com/zwrt/IPTV/refs/heads/Files/IPTV.m3u
 exit 0
