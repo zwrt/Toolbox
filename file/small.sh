@@ -29,6 +29,7 @@ mv -n nikki \
       luci-app-linkease ../ && \
 cd .. && \
 rm -rf small-package
+wget -O ./README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
 
 rm -rf ./*/.git & rm -rf ./*/.gitattributes
 rm -rf ./*/.svn & rm -rf ./*/.github & rm -rf ./*/.gitignore
