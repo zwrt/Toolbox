@@ -878,6 +878,14 @@ close_port() {
 		fi
 	done
 
+	# 删除已存在的规则（如果有）
+	iptables -D INPUT -i lo -j ACCEPT 2>/dev/null
+	iptables -D FORWARD -i lo -j ACCEPT 2>/dev/null
+
+	# 插入新规则到第一条
+	iptables -I INPUT 1 -i lo -j ACCEPT
+	iptables -I FORWARD 1 -i lo -j ACCEPT
+
 	save_iptables_rules
 	send_stats "已关闭端口"
 }
@@ -1481,6 +1489,7 @@ certs_status() {
 		echo -e "3. 网络配置问题 ➠ 如使用Cloudflare Warp等虚拟网络请暂时关闭"
 		echo -e "4. 防火墙限制 ➠ 检查80/443端口是否开放，确保验证可访问"
 		echo -e "5. 申请次数超限 ➠ Let's Encrypt有每周限额(5次/域名/周)"
+		echo -e "6. 国内备案限制 ➠ 中国大陆环境请确认域名是否备案"
 		break_end
 		clear
 		echo "请再次尝试部署 $webname"
@@ -10204,7 +10213,7 @@ linux_panel() {
 			}
 
 			local docker_describe="自动将你的公网 IP（IPv4/IPv6）实时更新到各大 DNS 服务商，实现动态域名解析。"
-			local docker_url="官网介绍: https://github.com/CorentinTh/it-tools"
+			local docker_url="官网介绍: https://github.com/jeessy2/ddns-go"
 			local docker_use=""
 			local docker_passwd=""
 			local app_size="1"
