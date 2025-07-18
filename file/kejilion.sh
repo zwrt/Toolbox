@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.0.1"
+sh_v="4.0.2"
 
 
 gl_hui='\e[37m'
@@ -3448,7 +3448,7 @@ ldnmp_web_status() {
 
 
 check_panel_app() {
-if $lujing ; then
+if $lujing > /dev/null 2>&1; then
 	check_panel="${gl_lv}已安装${gl_bai}"
 else
 	check_panel=""
@@ -8394,6 +8394,7 @@ linux_panel() {
 	  echo -e "${gl_kjlan}73.  ${gl_bai}LibreTV私有影视                     ${gl_kjlan}74.  ${gl_bai}MoonTV私有影视"
 	  echo -e "${gl_kjlan}75.  ${gl_bai}Melody音乐精灵                      ${gl_kjlan}76.  ${gl_bai}在线DOS老游戏"
 	  echo -e "${gl_kjlan}77.  ${gl_bai}迅雷离线下载工具                    ${gl_kjlan}78.  ${gl_bai}PandaWiki智能文档管理系统"
+	  echo -e "${gl_kjlan}79.  ${gl_bai}Beszel服务器监控"
 	  echo -e "${gl_kjlan}------------------------"
 	  echo -e "${gl_kjlan}0.   ${gl_bai}返回主菜单"
 	  echo -e "${gl_kjlan}------------------------${gl_bai}"
@@ -8450,13 +8451,13 @@ linux_panel() {
 			  ;;
 		  3)
 
-			local lujing="command -v 1pctl > /dev/null 2>&1"
+			local lujing="command -v 1pctl"
 			local panelname="1Panel"
 			local panelurl="https://1panel.cn/"
 
 			panel_app_install() {
 				install bash
-				curl -sSL https://resource.fit2cloud.com/1panel/package/quick_start.sh -o quick_start.sh && bash quick_start.sh
+				bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"
 			}
 
 			panel_app_manage() {
@@ -10525,6 +10526,33 @@ linux_panel() {
 			  ;;
 
 
+
+		  79)
+
+			local docker_name="beszel"
+			local docker_img="henrygd/beszel"
+			local docker_port=8079
+
+			docker_rum() {
+
+				mkdir -p /home/docker/beszel && \
+				docker run -d \
+				  --name beszel \
+				  --restart=unless-stopped \
+				  -v /home/docker/beszel:/beszel_data \
+				  -p ${docker_port}:8090 \
+				  henrygd/beszel
+
+			}
+
+			local docker_describe="Beszel轻量易用的服务器监控"
+			local docker_url="官网介绍: https://beszel.dev/zh/"
+			local docker_use=""
+			local docker_passwd=""
+			local app_size="1"
+			docker_app
+
+			  ;;
 
 
 		  0)
