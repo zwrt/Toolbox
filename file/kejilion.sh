@@ -154,7 +154,7 @@ public_ip=$(get_public_ip)
 isp_info=$(curl -s --max-time 3 http://ipinfo.io/org)
 
 
-if [[ "$isp_info" =~ [Cc]hina ]]; then
+if echo "$isp_info" | grep -iq 'china'; then
   ipv4_address=$(get_local_ip)
 else
   ipv4_address="$public_ip"
