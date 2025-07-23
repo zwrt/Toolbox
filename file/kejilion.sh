@@ -2470,7 +2470,6 @@ block_container_port() {
 	local container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name_or_id")
 
 	if [ -z "$container_ip" ]; then
-		echo "错误：无法获取容器 $container_name_or_id 的 IP 地址。请检查容器名称或ID是否正确。"
 		return 1
 	fi
 
@@ -2529,7 +2528,6 @@ clear_container_rules() {
 	local container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name_or_id")
 
 	if [ -z "$container_ip" ]; then
-		echo "错误：无法获取容器 $container_name_or_id 的 IP 地址。请检查容器名称或ID是否正确。"
 		return 1
 	fi
 
@@ -3322,10 +3320,6 @@ find_container_by_host_port() {
 			break
 		fi
 	done)
-
-	if [ -n "$docker_name" ]; then
-		echo "$docker_name"
-	fi
 }
 
 
@@ -7944,9 +7938,15 @@ linux_ldnmp() {
 
 	  23)
 	  ldnmp_Proxy
-	  close_port $port
 	  find_container_by_host_port "$port"
-	  clear_container_rules "$docker_name" "$ipv4_address"
+	  if [ -z "$docker_name" ]; then
+		close_port "$port"
+		echo "已阻止IP+端口访问该服务"
+	  else
+	  	ip_address
+		block_container_port "$docker_name" "$ipv4_address"
+	  fi
+
 		;;
 
 	  24)
@@ -12731,9 +12731,14 @@ else
 		fd|rp|反代)
 			shift
 			ldnmp_Proxy "$@"
-			close_port $port
 	  		find_container_by_host_port "$port"
-	  		clear_container_rules "$docker_name" "$ipv4_address"
+	  		if [ -z "$docker_name" ]; then
+	  		  close_port "$port"
+			  echo "已阻止IP+端口访问该服务"
+	  		else
+			  ip_address
+	  		  block_container_port "$docker_name" "$ipv4_address"
+	  		fi
 			;;
 
 		loadbalance|负载均衡)
