@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.1.1"
+sh_v="4.1.2"
 
 
 gl_hui='\e[37m'
@@ -11780,7 +11780,7 @@ while true; do
 		  ;;
 
 
-	97|wgs|wireguard)
+	97|wgs)
 
 		local app_id="97"
 		local docker_name="wireguard"
@@ -11817,7 +11817,7 @@ while true; do
 		  lscr.io/linuxserver/wireguard:latest
 
 
-		sleep 5
+		sleep 3
 		docker exec wireguard sh -c 'for d in /config/peer_*; do sed -i "/^DNS *= *10\.13\.13\.1$/d" "$d"/*.conf; done'
 		docker exec wireguard sh -c '
 		for d in /config/peer_*; do
@@ -11828,10 +11828,21 @@ while true; do
 		done
 		'
 
+		docker exec -it wireguard bash -c '
+		for d in /config/peer_*; do
+		  cd "$d" || continue
+		  conf_file=$(ls *.conf)
+		  base_name="${conf_file%.conf}"
+		  echo "生成二维码: $base_name.png"
+		  qrencode -o "$base_name.png" < "$conf_file"
+		done
+		'
+
+		sleep 2
 		docker exec -it wireguard bash -c 'for i in $(ls /config | grep peer_ | sed "s/peer_//"); do echo "--- $i ---"; /app/show-peer $i; done'
-		sleep 3
+		sleep 2
 		docker exec wireguard sh -c 'for d in /config/peer_*; do echo "===== $(basename $d) ====="; cat $d/*.conf; echo; done'
-		sleep 3
+		sleep 2
 		echo -e "${gl_lv}${COUNT}个客户端配置全部输出，使用方法如下：${gl_bai}"
 		echo -e "${gl_lv}1. 手机下载wg的APP，扫描上方二维码，可以快速连接网络${gl_bai}"
 		echo -e "${gl_lv}2. Windows下载客户端，复制配置代码连接网络。${gl_bai}"
@@ -11850,6 +11861,73 @@ while true; do
 
 		;;
 
+
+	98|wgc)
+
+		local app_id="98"
+		local docker_name="wireguardc"
+		local docker_img="kjlion/wireguard:alpine"
+		local docker_port=51820
+
+		docker_rum() {
+
+			mkdir -p /home/docker/wireguard/config/
+
+			local CONFIG_FILE="/home/docker/wireguard/config/wg0.conf"
+
+			# 创建目录（如果不存在）
+			mkdir -p "$(dirname "$CONFIG_FILE")"
+
+			echo "请粘贴你的客户端配置，连续按两次回车保存："
+
+			# 初始化变量
+			input=""
+			empty_line_count=0
+
+			# 逐行读取用户输入
+			while IFS= read -r line; do
+				if [[ -z "$line" ]]; then
+					((empty_line_count++))
+					if [[ $empty_line_count -ge 2 ]]; then
+						break
+					fi
+				else
+					empty_line_count=0
+					input+="$line"$'\n'
+				fi
+			done
+
+			# 写入配置文件
+			echo "$input" > "$CONFIG_FILE"
+
+			echo "客户端配置已保存到 $CONFIG_FILE"
+
+			docker run -d \
+			  --name wireguardc \
+			  --network host \
+			  --cap-add NET_ADMIN \
+			  --cap-add SYS_MODULE \
+			  -v /home/docker/wireguard/config:/config \
+			  -v /lib/modules:/lib/modules:ro \
+			  --restart always \
+			  kjlion/wireguard:alpine
+
+			sleep 3
+
+			docker logs wireguardc
+
+		break_end
+
+		}
+
+		local docker_describe="现代化、高性能的虚拟专用网络工具"
+		local docker_url="官网介绍: https://www.wireguard.com/"
+		local docker_use=""
+		local docker_passwd=""
+		local app_size="1"
+		docker_app
+
+		;;
 
 
 
