@@ -2013,6 +2013,11 @@ web_security() {
 					  f2b_install_sshd
 					  cd /etc/fail2ban/filter.d
 					  curl -sS -O ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/fail2ban-nginx-cc.conf
+					  wget ${gh_proxy}raw.githubusercontent.com/linuxserver/fail2ban-confs/master/filter.d/nginx-418.conf
+					  wget ${gh_proxy}raw.githubusercontent.com/linuxserver/fail2ban-confs/master/filter.d/nginx-deny.conf
+					  wget ${gh_proxy}raw.githubusercontent.com/linuxserver/fail2ban-confs/master/filter.d/nginx-unauthorized.conf
+					  wget ${gh_proxy}https://raw.githubusercontent.com/linuxserver/fail2ban-confs/master/filter.d/nginx-bad-request.conf
+
 					  cd /etc/fail2ban/jail.d/
 					  curl -sS -O ${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/nginx-docker-cc.conf
 					  sed -i "/cloudflare/d" /etc/fail2ban/jail.d/nginx-docker-cc.conf
@@ -2029,28 +2034,28 @@ web_security() {
 					  local xxx="fail2ban-nginx-cc"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-418"
+					  local xxx="nginx-418"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-bad-request"
+					  local xxx="nginx-bad-request"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-badbots"
+					  local xxx="nginx-badbots"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-botsearch"
+					  local xxx="nginx-botsearch"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-deny"
+					  local xxx="nginx-deny"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-http-auth"
+					  local xxx="nginx-http-auth"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-nginx-unauthorized"
+					  local xxx="nginx-unauthorized"
 					  f2b_status_xxx
 					  echo "------------------------"
-					  local xxx="docker-php-url-fopen"
+					  local xxx="php-url-fopen"
 					  f2b_status_xxx
 					  echo "------------------------"
 
