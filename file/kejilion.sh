@@ -8805,7 +8805,7 @@ while true; do
 	  local app_numbers=$([ -f /home/docker/appno.txt ] && cat /home/docker/appno.txt || echo "")
 
 	  # 用循环设置颜色
-	  for i in {1..100}; do
+	  for i in {1..150}; do
 		  if echo "$app_numbers" | grep -q "^$i$"; then
 			  declare "color$i=${gl_lv}"
 		  else
@@ -12150,7 +12150,7 @@ while true; do
 		docker_app_install() {
 
 
-			read -e -p "设置面板登录密码 (默认 123ADMIN123)" LOGIN_PASSWD
+			read -e -p "设置面板登录密码 (默认 123ADMIN123): " LOGIN_PASSWD
 			local LOGIN_PASSWD=${LOGIN_PASSWD:-123ADMIN123}
 
 			install git
@@ -12159,6 +12159,7 @@ while true; do
 			sed -i "/443:443/d" /home/docker/cloud_manager/docker-compose.yml
 			cp .env.example .env
 			sed -i "s|PANEL_PASSWORD=YourSecurePassword123|PANEL_PASSWORD=$LOGIN_PASSWD|" .env
+			sed -i "s|your.domain.com|${ipv4_address}|" .env
 
 			docker compose up -d
 			clear
