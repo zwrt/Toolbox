@@ -1,26 +1,14 @@
 {
-  "http://dingyue.xjay.xyz": {
-    "node_count": 7,
-    "sub_url": "https://dingyue.xjay.xyz/api/v1/client/subscribe?token=3b36da311b4a5935223e248851e2a847",
-    "email": "cl3iw5utmu4y@outlook.com",
-    "expire_info": "2025-11-18 21:40:18+08:00"
-  },
   "https://multiserver.multiserveradelshoop.com": {
     "node_count": 2,
-    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=4cbd84dea36755051b77b6e6248d3825",
-    "email": "qhga5sq06amu@outlook.com",
+    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=c197341c365c512baea78c0dddfdf771",
+    "email": "ng4id29psk7d@gmail.com",
     "expire_info": "永不过期"
-  },
-  "https://slianvpn.top": {
-    "node_count": 50,
-    "sub_url": "https://slurl.izenny.com/api/v1/client/subscribe?token=847b564f6c7c128c427745094d1b1fd5",
-    "email": "1w7wj4qlniz9@outlook.com",
-    "expire_info": "2025-11-18 22:48:48+08:00"
   },
   "https://vfentou.com": {
     "node_count": 2,
-    "sub_url": "https://vfentou.com/link/evSGSrdGNYikgn5k?sub=3",
-    "email": "yjw0mm6olbi5@gmail.com",
-    "expire_info": "2025-11-19 20:50:07+08:00"
+    "sub_url": "https://vfentou.com/link/q49zXcWBu1cfQA71?sub=3",
+    "email": "3oy71ahbvxb5@outlook.com",
+    "expire_info": "2025-11-19 22:32:44+08:00"
   }
 }
