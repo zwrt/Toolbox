@@ -1,128 +1,134 @@
 {
-  "http://fastvpn.top": {
-    "node_count": 33,
-    "sub_url": "https://fastvpn.top/s/b84ffc99d624f41fffa8a01462e3843e",
-    "email": "4w5dt0spv67l@qq.com",
-    "expire_info": "2025-11-21 11:13:27+08:00"
-  },
   "http://dingyue.xjay.xyz": {
     "node_count": 7,
-    "sub_url": "https://dingyue.xjay.xyz/api/v1/client/subscribe?token=4b04ae57e99d39ef311d66c500b1ff75",
-    "email": "v6kj3yqwioph@outlook.com",
-    "expire_info": "2025-11-20 12:13:33+08:00"
+    "sub_url": "https://dingyue.xjay.xyz/api/v1/client/subscribe?token=fae5e924e5f9a49583dfcd5881af6a12",
+    "email": "o97s2h5g8c7b@gmail.com",
+    "expire_info": "2025-11-20 13:24:59+08:00"
   },
   "http://www.sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/l2d9u8eUnHxueqJE?sub=3",
-    "email": "8ssm6remtp26@gmail.com",
-    "expire_info": "2025-11-21 11:13:44+08:00"
+    "sub_url": "https://c.sdm.lat/link/kx4NStYIdLDoPeJx?sub=3",
+    "email": "sgju7ig32tt2@gmail.com",
+    "expire_info": "2025-11-21 12:25:16+08:00"
   },
   "https://a.sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/0qnR0O6Mih8k7T9z?sub=3",
-    "email": "1xwy644xj10s@gmail.com",
-    "expire_info": "2025-11-21 11:14:20+08:00"
+    "sub_url": "https://c.sdm.lat/link/UZVFs10YCL8ryl9X?sub=3",
+    "email": "b4f6voj7ffhv@outlook.com",
+    "expire_info": "2025-11-21 12:26:09+08:00"
   },
   "https://cfvpn.com": {
     "node_count": 36,
-    "sub_url": "http://cfvpn.com/api/v1/client/subscribe?token=75822838c56700003579449453a5d858",
-    "email": "tuqstdt5ll4k@gmail.com",
-    "expire_info": "2025-11-20 12:15:27+08:00"
+    "sub_url": "http://cfvpn.com/api/v1/client/subscribe?token=e8821efe6fa3005f691442e7a9b02f39",
+    "email": "bt3fvvzeuwuy@qq.com",
+    "expire_info": "2025-11-20 13:27:48+08:00"
+  },
+  "https://fastvpn.top": {
+    "node_count": 33,
+    "sub_url": "https://fastvpn.top/s/5c5a659e9e946327874e34f23fc73996",
+    "email": "ns68j237y05v@outlook.com",
+    "expire_info": "2025-11-21 12:29:26+08:00"
   },
   "https://go.yueyun.de": {
     "node_count": 30,
-    "sub_url": "https://go.yueyun.de/api/v1/client/subscribe?token=d644f6dce9bc45599d61f577996aa6fb",
-    "email": "7gq4s05qncn2@gmail.com",
-    "expire_info": "2025-11-21 11:16:58+08:00"
-  },
-  "https://gods1.dashicn.buzz": {
-    "node_count": 24,
-    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=fbe6e7160badac6b4fe2f58b2aa2183f",
-    "email": "jplfqe3jexez@outlook.com",
-    "expire_info": "2025-11-20 15:17:04+08:00"
-  },
-  "https://gods3.dashicn.buzz": {
-    "node_count": 24,
-    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=21785734023d2cc0f74811f4bda29bbf",
-    "email": "0p9jcmheq1q6@outlook.com",
-    "expire_info": "2025-11-20 15:17:04+08:00"
+    "sub_url": "https://go.yueyun.de/api/v1/client/subscribe?token=3fc62c6813ff1ac9f84eea3ab2127d27",
+    "email": "1sscvjrl6x4w@qq.com",
+    "expire_info": "2025-11-21 12:30:40+08:00"
   },
   "https://gods2.dashicn.buzz": {
     "node_count": 24,
-    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=fd64d224f01a1a17fd8ff67fd04e6a51",
-    "email": "wuucw3k5ij7s@qq.com",
-    "expire_info": "2025-11-20 15:17:04+08:00"
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=2df15dd0beaeb09e06256b758c9add80",
+    "email": "0k6g7odrw510@outlook.com",
+    "expire_info": "2025-11-20 16:30:53+08:00"
+  },
+  "https://gods1.dashicn.buzz": {
+    "node_count": 24,
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=741e0248e37651d9985dcb8bac5b53bf",
+    "email": "s84ehxgk4w6q@qq.com",
+    "expire_info": "2025-11-20 16:30:52+08:00"
+  },
+  "https://gods3.dashicn.buzz": {
+    "node_count": 24,
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=86a4766ae6af9651673bf45ba4ebdcdd",
+    "email": "8mnctx5joz9y@gmail.com",
+    "expire_info": "2025-11-20 16:30:54+08:00"
   },
   "https://hjxixi003.xxuux.cn": {
     "node_count": 35,
-    "sub_url": "https://hjxixi002.xxttx.cn/api/v1/client/subscribe?token=f7a37fb7c80e065c82c3d27a1fa26376",
-    "email": "y45hx79id1op@outlook.com",
-    "expire_info": "2025-11-20 12:17:33+08:00"
+    "sub_url": "https://hjxixi002.xxttx.cn/api/v1/client/subscribe?token=8bc41555ce32b592ea7a19dff3216f9d",
+    "email": "cifjxphrhdm5@outlook.com",
+    "expire_info": "2025-11-20 13:31:48+08:00"
   },
   "https://hjxixi002.xxttx.cn": {
     "node_count": 35,
-    "sub_url": "https://hjxixi002.xxttx.cn/api/v1/client/subscribe?token=f79e143e09ce3e05214ed2c61c2860d2",
-    "email": "1t7o87dqir8t@qq.com",
-    "expire_info": "2025-11-20 12:17:32+08:00"
-  },
-  "https://maichongyun.xyz": {
-    "node_count": 32,
-    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=878373be0c9e2e2226b6fec1d3805fe1",
-    "email": "6dlhw30d14c9@outlook.com",
-    "expire_info": "2025-11-20 12:18:34+08:00"
-  },
-  "https://mgnet.vip": {
-    "node_count": 11,
-    "sub_url": "https://aa.mgnet.sbs/link/5ZNY4V8jA0FKUgIB?sub=3",
-    "email": "yhbi4jnwp47o@outlook.com",
-    "expire_info": "2025-11-22 12:19:07+08:00"
-  },
-  "https://multiserver.multiserveradelshoop.com": {
-    "node_count": 2,
-    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=35392e55012c11bafc31a2b754c0a389",
-    "email": "6l1mp2bo7qzc@gmail.com",
-    "expire_info": "永不过期"
+    "sub_url": "https://hjxixi002.xxttx.cn/api/v1/client/subscribe?token=ed113fa7ac466f4ee07bcfaaa7acb01d",
+    "email": "k1z61p2h83h3@qq.com",
+    "expire_info": "2025-11-20 13:31:47+08:00"
   },
   "https://maichongyun.cc": {
     "node_count": 32,
-    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=f2d9d69aea36a52e3aad6ecf20e228e3",
-    "email": "1fzav13xptst@qq.com",
-    "expire_info": "2025-11-20 12:18:32+08:00"
+    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=010ad437e887e1aa456258bc5d77e469",
+    "email": "fqhas1z1xn4a@qq.com",
+    "expire_info": "2025-11-20 13:33:20+08:00"
+  },
+  "https://mgnet.vip": {
+    "node_count": 11,
+    "sub_url": "https://aa.mgnet.sbs/link/iSDzjHDEAg10ubeC?sub=3",
+    "email": "cr4zq0oz48f0@outlook.com",
+    "expire_info": "2025-11-22 13:34:23+08:00"
+  },
+  "https://multiserver.multiserveradelshoop.com": {
+    "node_count": 2,
+    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=7af0f2bda2588380453ea55c6e411e2a",
+    "email": "1g5hzui6kdl5@outlook.com",
+    "expire_info": "永不过期"
+  },
+  "https://maichongyun.xyz": {
+    "node_count": 32,
+    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=eeb17e657f841d1ea258168b593b1cd4",
+    "email": "w7vhsxybi872@outlook.com",
+    "expire_info": "2025-11-20 13:33:33+08:00"
   },
   "https://maichongyun.click": {
     "node_count": 32,
-    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=66666508764dcd45a29caad8cd01bb9d",
-    "email": "3t66cwvgdr1k@outlook.com",
-    "expire_info": "2025-11-20 12:18:33+08:00"
+    "sub_url": "https://mc123.mmwzzu.com/api/v1/client/subscribe?token=ac4e7ef1e0f85495f6965d5662e0fc22",
+    "email": "utus8o2pfnjz@qq.com",
+    "expire_info": "2025-11-20 13:33:30+08:00"
   },
   "https://sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/FHFm2V2OQRjfEobx?sub=3",
-    "email": "gi17059i0wsp@qq.com",
-    "expire_info": "2025-11-21 11:20:15+08:00"
+    "sub_url": "https://c.sdm.lat/link/ZKozL1ECt20lqgc0?sub=3",
+    "email": "kp8f33muabc8@qq.com",
+    "expire_info": "2025-11-21 12:37:01+08:00"
   },
   "https://vfentou.com": {
     "node_count": 2,
-    "sub_url": "https://vfentou.com/link/TJp3AF2uHDdiAuU2?sub=3",
-    "email": "mnpqc1v6kzrw@qq.com",
-    "expire_info": "2025-11-21 11:21:38+08:00"
+    "sub_url": "https://vfentou.com/link/aQLtBVgoWWVWzhDF?sub=3",
+    "email": "v2ujnevruagj@qq.com",
+    "expire_info": "2025-11-21 12:39:28+08:00"
   },
   "https://www.maichongyun.xyz": {
     "node_count": 32,
-    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=db3e02a4677378c5388fff4343b9fae8",
-    "email": "v3op365lfobl@gmail.com",
-    "expire_info": "2025-11-20 12:22:44+08:00"
+    "sub_url": "https://mc.yqgiao.com/api/v1/client/subscribe?token=1377d297c000d7a80d5d2b0ac52d2d7c",
+    "email": "6bd23fzhvq32@outlook.com",
+    "expire_info": "2025-11-20 13:41:30+08:00"
   },
   "https://xbd.iftballs.com": {
     "node_count": 3,
-    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=bbffc92a4146ad87a599f4bd911ce0b0",
-    "email": "alx8yq0s5ye8@qq.com",
+    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=d5b0820421c2813ec82a1dacbae8cd22",
+    "email": "9tee6h8ab18g@outlook.com",
     "expire_info": "永不过期"
+  },
+  "https://xxx.yxt999.cn": {
+    "node_count": 35,
+    "sub_url": "https://hjxixi002.xxttx.cn/api/v1/client/subscribe?token=7d0e62db6d9870cab9d607a432175472",
+    "email": "zloq2u89ufbx@outlook.com",
+    "expire_info": "2025-11-20 13:44:25+08:00"
   },
   "https://yywhale.com": {
     "node_count": 5,
-    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=5beceb2ba22329817f366757658a8074",
-    "email": "1w8mymgsi3g9@outlook.com",
-    "expire_info": "2025-11-20 12:24:54+08:00"
+    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=c35ab4fed6d1da092d6092d56557da6b",
+    "email": "iwi9u25bemoo@qq.com",
+    "expire_info": "2025-11-20 13:44:41+08:00"
   }
 }
