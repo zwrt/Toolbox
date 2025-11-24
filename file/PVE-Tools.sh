@@ -2149,7 +2149,7 @@ igpu_sriov_setup() {
     dkms_asset_version=$(echo "$dkms_version_input" | sed 's/^[vV]//')
     dkms_tag="$dkms_version_input"
 
-    dkms_url="https://ghfast.top/github.com/strongtz/i915-sriov-dkms/releases/download/${dkms_tag}/i915-sriov-dkms_${dkms_asset_version}_amd64.deb"
+    dkms_url="https://gh-proxy.com/github.com/strongtz/i915-sriov-dkms/releases/download/${dkms_tag}/i915-sriov-dkms_${dkms_asset_version}_amd64.deb"
     dkms_file="/tmp/i915-sriov-dkms_${dkms_asset_version}_amd64.deb"
 
     # 检查是否已下载
