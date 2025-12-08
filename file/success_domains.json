@@ -1,74 +1,98 @@
 {
-  "http://fastvpn.top": {
-    "node_count": 33,
-    "sub_url": "https://fastvpn.top/s/0278ef7250f0d57a4da3ab00e8aff504",
-    "email": "3g8zi22kv7ke@outlook.com",
-    "expire_info": "2025-12-09 09:22:01+08:00"
+  "http://dingyue.xjay.xyz": {
+    "node_count": 7,
+    "sub_url": "https://dingyue.xjay.xyz/api/v1/client/subscribe?token=9b4fdaf24b7d660c681ceee44cfb71bb",
+    "email": "lmqofehzuc9w@outlook.com",
+    "expire_info": "2025-12-08 12:23:29+08:00"
   },
   "http://www.sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/owjxHlcHxOwonFMb?sub=3",
-    "email": "w2lw5o5vz0ta@outlook.com",
-    "expire_info": "2025-12-09 09:22:19+08:00"
+    "sub_url": "https://c.sdm.lat/link/4T0X5X1RvbGOJgaK?sub=3",
+    "email": "ckrepb3utowh@outlook.com",
+    "expire_info": "2025-12-09 11:23:41+08:00"
+  },
+  "https://a.sdmone.pro": {
+    "node_count": 1,
+    "sub_url": "https://c.sdm.lat/link/XurA9qZhF1YETPfY?sub=3",
+    "email": "s72mpq9pu3cc@gmail.com",
+    "expire_info": "2025-12-09 11:24:24+08:00"
   },
   "https://best.nxxbbf.com": {
     "node_count": 9,
-    "sub_url": "https://bestti.whtjdasha.com/api/v1/client/subscribe?token=196be90268f93fd604f8059101398ef4",
-    "email": "1wwipzo213vz@outlook.com",
-    "expire_info": "2025-12-07 10:56:32+08:00"
+    "sub_url": "https://bestti.whtjdasha.com/api/v1/client/subscribe?token=8230b5a42debecbbe644ee03a9d95415",
+    "email": "4tklc3tu9nx4@outlook.com",
+    "expire_info": "2025-12-07 12:57:50+08:00"
   },
   "https://fastvpn.top": {
     "node_count": 33,
-    "sub_url": "https://fastvpn.top/s/d0057c0709239400db3c3275b99d8c13",
-    "email": "dcttmkft67yb@outlook.com",
-    "expire_info": "2025-12-09 09:25:11+08:00"
+    "sub_url": "https://fastvpn.top/s/72feb8f2553737d41538fc06c9cd4afb",
+    "email": "6qczn4cxqgmu@outlook.com",
+    "expire_info": "2025-12-09 11:26:11+08:00"
   },
-  "https://go.yueyun.de": {
-    "node_count": 30,
-    "sub_url": "https://go.yueyun.de/api/v1/client/subscribe?token=183fe075c76ea2ead077ed2050215ffd",
-    "email": "j2wm71z2qfwr@gmail.com",
-    "expire_info": "2025-12-09 09:26:04+08:00"
-  },
-  "https://gods2.dashicn.buzz": {
+  "https://gods1.dashicn.buzz": {
     "node_count": 24,
-    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=be5632dd33b439a5673f52b474987d47",
-    "email": "cleblikifj7h@qq.com",
-    "expire_info": "2025-12-08 13:26:08+08:00"
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=898a85bbd36be58628800bfe9c3b1580",
+    "email": "pdt53745k41y@outlook.com",
+    "expire_info": "2025-12-08 15:26:46+08:00"
   },
   "https://gods3.dashicn.buzz": {
     "node_count": 24,
-    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=7bf2a026b873d1c90872449ea46f42bc",
-    "email": "jz7zutfu3gtl@qq.com",
-    "expire_info": "2025-12-08 13:26:12+08:00"
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=61fc5e2ccb1782d01722f96bd50add73",
+    "email": "ipf1wvyr9zkv@qq.com",
+    "expire_info": "2025-12-08 15:26:47+08:00"
+  },
+  "https://go.yueyun.de": {
+    "node_count": 30,
+    "sub_url": "https://go.yueyun.de/api/v1/client/subscribe?token=18f177cef5f4fac6df04629fc9831ad5",
+    "email": "7l19n8ib76ds@outlook.com",
+    "expire_info": "2025-12-09 11:26:43+08:00"
+  },
+  "https://gods2.dashicn.buzz": {
+    "node_count": 24,
+    "sub_url": "https://dftyfdf1j00ll.dashuai.us/api/v1/client/subscribe?token=96be1b136f29c76c4338cce3defa6eac",
+    "email": "ksy25wvov2op@outlook.com",
+    "expire_info": "2025-12-08 15:26:46+08:00"
+  },
+  "https://mgnet.vip": {
+    "node_count": 11,
+    "sub_url": "https://aa.mgnet.sbs/link/ssxTzqeXKjAaaXUt?sub=3",
+    "email": "o418c9gz1djj@gmail.com",
+    "expire_info": "2025-12-10 12:28:28+08:00"
   },
   "https://multiserver.multiserveradelshoop.com": {
     "node_count": 2,
-    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=4fb75ad9f856fd971090fdd268eaaf34",
-    "email": "ceuf2ofp9gur@qq.com",
+    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=8c7c7017c6de2b77c99caa8e42f24876",
+    "email": "vgufg2f5foxd@gmail.com",
     "expire_info": "永不过期"
+  },
+  "https://sdmone.pro": {
+    "node_count": 1,
+    "sub_url": "https://c.sdm.lat/link/bAeZKJ16E6JRioa3?sub=3",
+    "email": "yhiknqli67rx@gmail.com",
+    "expire_info": "2025-12-09 11:29:57+08:00"
   },
   "https://slianvpn.com": {
     "node_count": 50,
-    "sub_url": "https://slurl.izenny.com/api/v1/client/subscribe?token=7f21cc1a824cbd48aa3f1efba45160a4",
-    "email": "9m0ttzmlof4e@qq.com",
-    "expire_info": "2025-12-08 11:29:56+08:00"
+    "sub_url": "https://slurl.izenny.com/api/v1/client/subscribe?token=7c9d743e12bdeda5675aa38b5311f576",
+    "email": "2dvf127nvbz3@outlook.com",
+    "expire_info": "2025-12-08 13:30:12+08:00"
   },
   "https://vn3765.cc": {
     "node_count": 5,
-    "sub_url": "https://vn3765.cc/s/6527c3398a8f8a362edf63f1bc5b468c",
-    "email": "vl2ncdeczbaf@gmail.com",
-    "expire_info": "2026-01-08 09:31:45+08:00"
+    "sub_url": "https://vn3765.cc/s/ee12cf7c3e17b9de73c7985a47f5f891",
+    "email": "17pq3r9sl16u@outlook.com",
+    "expire_info": "2026-01-08 11:31:45+08:00"
   },
   "https://xbd.iftballs.com": {
     "node_count": 3,
-    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=3db4640e96f7ba7badc5dbec1501ed05",
-    "email": "xzc8vsryujfu@qq.com",
+    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=c4ebc16236a0aa7329752bdb4136f4a6",
+    "email": "zwtnxcb0of60@outlook.com",
     "expire_info": "永不过期"
   },
   "https://yywhale.com": {
     "node_count": 5,
-    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=99a3d4cb867d1d8c6166c6a5fc14c6b2",
-    "email": "1balt1mcgoaj@gmail.com",
-    "expire_info": "2025-12-08 10:36:37+08:00"
+    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=266eb213b54b7938b43e706260b43ac6",
+    "email": "0ki47czjpsjg@outlook.com",
+    "expire_info": "2025-12-08 12:35:29+08:00"
   }
 }
