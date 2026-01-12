@@ -1433,6 +1433,7 @@ install_certbot() {
 
 
 install_ssltls() {
+	  sleep 5
 	  check_port > /dev/null 2>&1
 	  docker stop nginx > /dev/null 2>&1
 	  cd ~
