@@ -1442,10 +1442,6 @@ install_ssltls() {
 					openssl req -x509 -key /etc/letsencrypt/live/$yuming/privkey.pem -out /etc/letsencrypt/live/$yuming/fullchain.pem -days 5475 -subj "/C=US/ST=State/L=City/O=Organization/OU=Organizational Unit/CN=Common Name"
 				fi
 			else
-				if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null; then
-					iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
-				fi
-
 				docker run --rm -p 80:80 -v /etc/letsencrypt/:/etc/letsencrypt certbot/certbot certonly --standalone -d "$yuming" --email your@email.com --agree-tos --no-eff-email --force-renewal --key-type ecdsa
 			fi
 	  fi
@@ -1602,16 +1598,11 @@ certs_status() {
 			fi
 
 	  		  ;;
-	  	  3)
+	  	  *)
 	  	  	send_stats "不带证书改用HTTP访问"
 		  	sed -i '/if (\$scheme = http) {/,/}/s/^/#/' /home/web/conf.d/${yuming}.conf
 			sed -i '/ssl_certificate/d; /ssl_certificate_key/d' /home/web/conf.d/${yuming}.conf
 			sed -i '/443 ssl/d; /443 quic/d' /home/web/conf.d/${yuming}.conf
-	  		  ;;
-	  	  *)
-	  	  	send_stats "退出申请"
-			rm -f /home/web/conf.d/${yuming}.conf
-			exit
 	  		  ;;
 		esac
 	fi
