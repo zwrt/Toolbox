@@ -9586,58 +9586,91 @@ linux_ldnmp() {
 
 
 moltbot_menu() {
+	local app_id="114"
 
-	# Moltbot / Clawdbot 安装部署菜单
+	send_stats "clawdbot/moltbot安装"
+	get_install_status() {
+		if command -v clawdbot >/dev/null 2>&1; then
+			echo "${gl_lv}已安装${gl_bai}"
+		else
+			echo "${gl_hui}未安装${gl_bai}"
+		fi
+	}
+
+	get_running_status() {
+		if pgrep -f "clawdbot gateway" >/dev/null 2>&1; then
+			echo "${gl_lv}运行中${gl_bai}"
+		else
+			echo "${gl_hui}未运行${gl_bai}"
+		fi
+	}
+
 
 	show_menu() {
 		clear
+		
+		local install_status=$(get_install_status)
+		local running_status=$(get_running_status)
 		echo "======================================="
-		echo "        Moltbot / Clawdbot 管理菜单"
+		echo -e "  Moltbot / Clawdbot 管理菜单 $install_status $running_status"
 		echo "======================================="
-		echo "1) 安装"
-		echo "2) 初始化配置"
-		echo "3) 启动"
-		echo "4) 停止"
-		echo "5) 日志查看"
-		echo "6) 换模型"
-		echo "7) 卸载"
-		echo "0) 退出"
-		echo "---------------------------------------"
+		echo "1. 安装"
+		echo "2. 初始化配置"
+		echo "3. 启动"
+		echo "4. 停止"
+		echo "5. 日志查看"
+		echo "6. 换模型"
+		echo "--------------------"				
+		echo "7. 更新"
+		echo "8. 卸载"
+		echo "--------------------"		
+		echo "0. 返回上一级选单"
+		echo "--------------------"
 		printf "请输入选项并回车: "
 	}
 
 	install_moltbot() {
 		echo "开始安装 Moltbot……"
+		country=$(curl -s ipinfo.io/country)
+		if [ "$country" = "CN" ]; then
+			pnpm config set registry https://registry.npmmirror.com
+		fi
+
+
 		curl -fsSL https://molt.bot/install.sh | bash -s -- --install-method git
+		ln -s /root/.local/bin/clawdbot /usr/local/bin/clawdbot
+		clawdbot doctor --fix
+		add_app_id
 		echo "安装完成"
 		pause
+		
 	}
 
 	init_config() {
 		echo "开始初始化配置……"
 		echo "请根据提示完成引导配置"
 		clawdbot onboard --install-daemon
-		echo "配置完成"
-		pause
+		break_end
+		
 	}
+
 
 	start_bot() {
 		echo "启动 Clawdbot..."
 		clawdbot gateway
-		pause
+		break_end
 	}
 
 	stop_bot() {
 		echo "停止 Clawdbot..."
 		clawdbot gateway stop
-		pause
+		break_end
 	}
 
 	view_logs() {
 		echo "查看 Clawdbot 日志，Ctrl+C 退出"
-		# 假设日志在 standard output
 		clawdbot logs
-		pause
+		break_end
 	}
 
 	change_model() {
@@ -9645,22 +9678,28 @@ moltbot_menu() {
 		read model
 		echo "切换模型为 $model"
 		clawdbot models set "$model"
-		echo "完成，请重新启动网关"
-		pause
+		clawdbot gateway stop
+		clawdbot gateway
+		break_end
 	}
+
+	update_moltbot() {
+		echo "更新 Moltbot..."
+		clawdbot update --restart
+		add_app_id
+		echo "卸载完成"
+		break_end
+	}
+
 
 	uninstall_moltbot() {
 		echo "卸载 Moltbot..."
-		# 这里假设 uninstall.sh 存在于安装目录
 		curl -fsSL https://molt.bot/install.sh | bash -s -- --uninstall
+		sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
 		echo "卸载完成"
-		pause
+		break_end
 	}
 
-	pause() {
-		printf "按回车继续..."
-		read dummy
-	}
 
 	# 主循环
 	while true; do
@@ -9673,14 +9712,14 @@ moltbot_menu() {
 			4) stop_bot ;;
 			5) view_logs ;;
 			6) change_model ;;
-			7) uninstall_moltbot ;;
+			7) update_moltbot ;;
+			8) uninstall_moltbot ;;
 			0) echo "退出脚本"; exit 0 ;;
 			*) echo "无效选项，请重新输入"; pause ;;
 		esac
 	done
 
 }
-
 
 
 
@@ -9791,7 +9830,7 @@ while true; do
 	  echo -e "${gl_kjlan}109. ${color109}ZFile在线网盘                       ${gl_kjlan}110. ${color110}Karakeep书签管理"
 	  echo -e "${gl_kjlan}-------------------------"
 	  echo -e "${gl_kjlan}111. ${color111}多格式文件转换工具                  ${gl_kjlan}112. ${color112}Lucky大内网穿透工具"
-	  echo -e "${gl_kjlan}113. ${color113}Firefox浏览器                       ${gl_kjlan}114. ${color110}ClawdBot/Moltbot机器人"
+	  echo -e "${gl_kjlan}113. ${color113}Firefox浏览器                       ${gl_kjlan}114. ${color114}ClawdBot/Moltbot机器人 ${gl_huang}★${gl_bai}"
 	  echo -e "${gl_kjlan}-------------------------"
 	  echo -e "${gl_kjlan}第三方应用列表"
   	  echo -e "${gl_kjlan}想要让你的应用出现在这里？查看开发者指南: ${gl_huang}https://dev.kejilion.sh/${gl_bai}"
