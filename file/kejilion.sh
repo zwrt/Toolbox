@@ -9582,6 +9582,114 @@ linux_ldnmp() {
 
 
 
+
+
+
+moltbot_menu() {
+
+	# Moltbot / Clawdbot 安装部署菜单
+
+	show_menu() {
+		clear
+		echo "======================================="
+		echo "        Moltbot / Clawdbot 管理菜单"
+		echo "======================================="
+		echo "1) 安装"
+		echo "2) 初始化配置"
+		echo "3) 启动"
+		echo "4) 停止"
+		echo "5) 日志查看"
+		echo "6) 换模型"
+		echo "7) 卸载"
+		echo "0) 退出"
+		echo "---------------------------------------"
+		printf "请输入选项并回车: "
+	}
+
+	install_moltbot() {
+		echo "开始安装 Moltbot……"
+		curl -fsSL https://molt.bot/install.sh | bash -s -- --install-method git
+		echo "安装完成"
+		pause
+	}
+
+	init_config() {
+		echo "开始初始化配置……"
+		echo "请根据提示完成引导配置"
+		clawdbot onboard --install-daemon
+		echo "配置完成"
+		pause
+	}
+
+	start_bot() {
+		echo "启动 Clawdbot..."
+		clawdbot gateway
+		pause
+	}
+
+	stop_bot() {
+		echo "停止 Clawdbot..."
+		clawdbot gateway stop
+		pause
+	}
+
+	view_logs() {
+		echo "查看 Clawdbot 日志，Ctrl+C 退出"
+		# 假设日志在 standard output
+		clawdbot logs
+		pause
+	}
+
+	change_model() {
+		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o): "
+		read model
+		echo "切换模型为 $model"
+		clawdbot models set "$model"
+		echo "完成，请重新启动网关"
+		pause
+	}
+
+	uninstall_moltbot() {
+		echo "卸载 Moltbot..."
+		# 这里假设 uninstall.sh 存在于安装目录
+		curl -fsSL https://molt.bot/install.sh | bash -s -- --uninstall
+		echo "卸载完成"
+		pause
+	}
+
+	pause() {
+		printf "按回车继续..."
+		read dummy
+	}
+
+	# 主循环
+	while true; do
+		show_menu
+		read choice
+		case $choice in
+			1) install_moltbot ;;
+			2) init_config ;;
+			3) start_bot ;;
+			4) stop_bot ;;
+			5) view_logs ;;
+			6) change_model ;;
+			7) uninstall_moltbot ;;
+			0) echo "退出脚本"; exit 0 ;;
+			*) echo "无效选项，请重新输入"; pause ;;
+		esac
+	done
+
+}
+
+
+
+
+
+
+
+
+
+
 linux_panel() {
 
 local sub_choice="$1"
@@ -13348,7 +13456,7 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 		  ;;
 
 	  114|Moltbot|ClawdBot|moltbot|clawdbot)
-		bash <(curl -sSL ${gh_proxy}raw.githubusercontent.com/sky22333/shell/main/moltbot/install.sh)
+	  	  moltbot_menu
 		  ;;
 
 
