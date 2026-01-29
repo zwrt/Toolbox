@@ -9615,11 +9615,12 @@ moltbot_menu() {
 		echo -e "  Moltbot / Clawdbot 管理菜单 $install_status $running_status"
 		echo "======================================="
 		echo "1. 安装"
-		echo "2. 初始化配置"
-		echo "3. 启动"
-		echo "4. 停止"
-		echo "5. 日志查看"
-		echo "6. 换模型"
+		echo "2. 启动"
+		echo "3. 停止"
+		echo "--------------------"			
+		echo "4. 日志查看"
+		echo "5. 换模型"
+		echo "6. TG输入连接码"		
 		echo "--------------------"				
 		echo "7. 更新"
 		echo "8. 卸载"
@@ -9632,24 +9633,14 @@ moltbot_menu() {
 	install_moltbot() {
 		echo "开始安装 Moltbot……"
 		country=$(curl -s ipinfo.io/country)
-		if [ "$country" = "CN" ]; then
+		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			pnpm config set registry https://registry.npmmirror.com
 		fi
-
-
 		curl -fsSL https://molt.bot/install.sh | bash -s -- --install-method git
 		ln -s /root/.local/bin/clawdbot /usr/local/bin/clawdbot
 		clawdbot doctor --fix
-		add_app_id
-		echo "安装完成"
-		pause
-		
-	}
-
-	init_config() {
-		echo "开始初始化配置……"
-		echo "请根据提示完成引导配置"
 		clawdbot onboard --install-daemon
+		add_app_id
 		break_end
 		
 	}
@@ -9657,12 +9648,13 @@ moltbot_menu() {
 
 	start_bot() {
 		echo "启动 Clawdbot..."
-		clawdbot gateway
+		clawdbot gateway start
 		break_end
 	}
 
 	stop_bot() {
 		echo "停止 Clawdbot..."
+		install tmux
 		clawdbot gateway stop
 		break_end
 	}
@@ -9678,8 +9670,14 @@ moltbot_menu() {
 		read model
 		echo "切换模型为 $model"
 		clawdbot models set "$model"
-		clawdbot gateway stop
-		clawdbot gateway
+		break_end
+	}
+
+
+	change_tg_bot_code() {
+		printf "请输入TG机器人收到的连接码 (例如 Pairing code: NYA99R2F: "
+		read code
+		clawdbot pairing approve telegram $code
 		break_end
 	}
 
@@ -9707,14 +9705,14 @@ moltbot_menu() {
 		read choice
 		case $choice in
 			1) install_moltbot ;;
-			2) init_config ;;
-			3) start_bot ;;
-			4) stop_bot ;;
-			5) view_logs ;;
-			6) change_model ;;
+			2) start_bot ;;
+			3) stop_bot ;;
+			4) view_logs ;;
+			5) change_model ;;
+			6) change_tg_bot_code ;;
 			7) update_moltbot ;;
 			8) uninstall_moltbot ;;
-			0) echo "退出脚本"; exit 0 ;;
+			0) break ;;
 			*) echo "无效选项，请重新输入"; pause ;;
 		esac
 	done
