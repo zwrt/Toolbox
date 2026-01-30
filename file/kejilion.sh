@@ -9590,7 +9590,7 @@ moltbot_menu() {
 
 	send_stats "clawdbot/moltbot安装"
 	get_install_status() {
-		if command -v clawdbot >/dev/null 2>&1; then
+		if command -v openclaw >/dev/null 2>&1; then
 			echo "${gl_lv}已安装${gl_bai}"
 		else
 			echo "${gl_hui}未安装${gl_bai}"
@@ -9598,7 +9598,7 @@ moltbot_menu() {
 	}
 
 	get_running_status() {
-		if pgrep -f "clawdbot gateway" >/dev/null 2>&1; then
+		if pgrep -f "openclaw gateway" >/dev/null 2>&1; then
 			echo "${gl_lv}运行中${gl_bai}"
 		else
 			echo "${gl_hui}未运行${gl_bai}"
@@ -9612,7 +9612,8 @@ moltbot_menu() {
 		local install_status=$(get_install_status)
 		local running_status=$(get_running_status)
 		echo "======================================="
-		echo -e "  Moltbot / Clawdbot 管理菜单 $install_status $running_status"
+		echo -e "  Moltbot/Clawdbot/OpenClaw 管理菜单"
+		echo -e "  $install_status $running_status"
 		echo "======================================="
 		echo "1. 安装"
 		echo "2. 启动"
@@ -9634,23 +9635,23 @@ moltbot_menu() {
 	start_tmux() {
 		install tmux
 		tmux kill-session -t gateway > /dev/null 2>&1
-		tmux new -d -s gateway "clawdbot gateway"
+		tmux new -d -s gateway "openclaw gateway"
 		sleep 3
 	}
 
 
 	install_moltbot() {
-		echo "开始安装 Moltbot……"
+		echo "开始安装 OpenClaw..."
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			pnpm config set registry https://registry.npmmirror.com
 		fi
-		curl -fsSL https://molt.bot/install.sh | bash -s -- --install-method git
+		curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method git
+		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw
 		source ~/.bashrc
 		source ~/.profile
-		ln -s /root/.local/bin/clawdbot /usr/local/bin/clawdbot
-		clawdbot doctor --fix
-		clawdbot onboard --install-daemon
+		openclaw doctor --fix
+		openclaw onboard --install-daemon
 		add_app_id
 		break_end
 
@@ -9658,21 +9659,21 @@ moltbot_menu() {
 
 
 	start_bot() {
-		echo "启动 Clawdbot..."
+		echo "启动 OpenClaw..."
 		start_tmux
 		break_end
 	}
 
 	stop_bot() {
-		echo "停止 Clawdbot..."
+		echo "停止 OpenClaw..."
 		install tmux
-		clawdbot gateway stop
+		openclaw gateway stop
 		break_end
 	}
 
 	view_logs() {
-		echo "查看 Clawdbot 日志，Ctrl+C 退出"
-		clawdbot logs
+		echo "查看 OpenClaw 日志，Ctrl+C 退出"
+		openclaw logs
 		break_end
 	}
 
@@ -9680,7 +9681,7 @@ moltbot_menu() {
 		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o): "
 		read model
 		echo "切换模型为 $model"
-		clawdbot models set "$model"
+		openclaw models set "$model"
 		break_end
 	}
 
@@ -9688,13 +9689,13 @@ moltbot_menu() {
 	change_tg_bot_code() {
 		printf "请输入TG机器人收到的连接码 (例如 Pairing code: NYA99R2F: "
 		read code
-		clawdbot pairing approve telegram $code
+		openclaw pairing approve telegram $code
 		break_end
 	}
 
 	update_moltbot() {
-		echo "更新 Moltbot..."
-		clawdbot update --restart
+		echo "更新 OpenClaw..."
+		openclaw update --restart
 		add_app_id
 		echo "卸载完成"
 		break_end
@@ -9702,8 +9703,8 @@ moltbot_menu() {
 
 
 	uninstall_moltbot() {
-		echo "卸载 Moltbot..."
-		curl -fsSL https://molt.bot/install.sh | bash -s -- --uninstall
+		echo "卸载 OpenClaw..."
+		curl -fsSL https://openclaw.ai/install.sh | bash -s -- --uninstall
 		sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
 		echo "卸载完成"
 		break_end
@@ -9723,8 +9724,7 @@ moltbot_menu() {
 			6) change_tg_bot_code ;;
 			7) update_moltbot ;;
 			8) uninstall_moltbot ;;
-			0) break ;;
-			*) echo "无效选项，请重新输入"; pause ;;
+			*) break ;;
 		esac
 	done
 
