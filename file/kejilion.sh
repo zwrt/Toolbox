@@ -9608,7 +9608,7 @@ moltbot_menu() {
 
 	show_menu() {
 		clear
-		
+
 		local install_status=$(get_install_status)
 		local running_status=$(get_running_status)
 		echo "======================================="
@@ -9617,14 +9617,14 @@ moltbot_menu() {
 		echo "1. 安装"
 		echo "2. 启动"
 		echo "3. 停止"
-		echo "--------------------"			
+		echo "--------------------"
 		echo "4. 日志查看"
 		echo "5. 换模型"
-		echo "6. TG输入连接码"		
-		echo "--------------------"				
+		echo "6. TG输入连接码"
+		echo "--------------------"
 		echo "7. 更新"
 		echo "8. 卸载"
-		echo "--------------------"		
+		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
 		printf "请输入选项并回车: "
@@ -9637,12 +9637,14 @@ moltbot_menu() {
 			pnpm config set registry https://registry.npmmirror.com
 		fi
 		curl -fsSL https://molt.bot/install.sh | bash -s -- --install-method git
+		source ~/.bashrc
+		source ~/.profile
 		ln -s /root/.local/bin/clawdbot /usr/local/bin/clawdbot
 		clawdbot doctor --fix
 		clawdbot onboard --install-daemon
 		add_app_id
 		break_end
-		
+
 	}
 
 
