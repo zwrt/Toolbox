@@ -9652,6 +9652,10 @@ moltbot_menu() {
 		source ~/.profile
 		openclaw doctor --fix
 		openclaw onboard --install-daemon
+		openclaw cron add \
+		  --name "Gateway Watchdog" \
+		  --every 2m \
+		  --system-event "Check if 'gateway' tmux session exists. If not, run: tmux new -d -s gateway \"openclaw gateway\" and notify user."
 		add_app_id
 		break_end
 
