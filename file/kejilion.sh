@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.3.6"
+sh_v="4.3.7"
 
 
 gl_hui='\e[37m'
@@ -9630,6 +9630,15 @@ moltbot_menu() {
 		printf "请输入选项并回车: "
 	}
 
+
+	start_tmux() {
+		install tmux
+		tmux kill-session -t gateway > /dev/null 2>&1
+		tmux new -d -s gateway "clawdbot gateway"
+		sleep 3
+	}
+
+
 	install_moltbot() {
 		echo "开始安装 Moltbot……"
 		country=$(curl -s ipinfo.io/country)
@@ -9650,7 +9659,7 @@ moltbot_menu() {
 
 	start_bot() {
 		echo "启动 Clawdbot..."
-		clawdbot gateway start
+		start_tmux
 		break_end
 	}
 
@@ -14071,7 +14080,132 @@ log_menu() {
 
 
 
+env_menu() {
 
+	BASHRC="$HOME/.bashrc"
+	PROFILE="$HOME/.profile"
+
+	send_stats "系统变量管理工具"
+
+	show_env_vars() {
+		clear
+		send_stats "当前已生效环境变量"
+		echo "========== 当前已生效环境变量（节选） =========="
+		printf "%-20s %s\n" "变量名" "值"
+		echo "-----------------------------------------------"
+		for v in USER HOME SHELL LANG PWD; do
+			printf "%-20s %s\n" "$v" "${!v}"
+		done
+
+		echo
+		echo "PATH:"
+		echo "$PATH" | tr ':' '\n' | nl -ba
+
+		echo
+		echo "========== 配置文件中定义的变量（解析） =========="
+
+		parse_file_vars() {
+			local file="$1"
+			[ -f "$file" ] || return
+
+			echo
+			echo ">>> 来源文件：$file"
+			echo "-----------------------------------------------"
+
+			# 提取 export VAR=xxx 或 VAR=xxx
+			grep -Ev '^\s*#|^\s*$' "$file" \
+			| grep -E '^(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' \
+			| while read -r line; do
+				var=$(echo "$line" | sed -E 's/^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*).*/\2/')
+				val=$(echo "$line" | sed -E 's/^[^=]+=//')
+				printf "%-20s %s\n" "$var" "$val"
+			done
+		}
+
+		parse_file_vars "$HOME/.bashrc"
+		parse_file_vars "$HOME/.profile"
+
+		echo
+		echo "==============================================="
+		read -rp "按回车继续..."
+	}
+
+
+	view_file() {
+		local file="$1"
+		send_stats "查看变量文件 $file"
+		clear
+		if [ -f "$file" ]; then
+			echo "========== 查看文件：$file =========="
+			cat -n "$file"
+			echo "===================================="
+		else
+			echo "文件不存在：$file"
+		fi
+		read -rp "按回车继续..."
+	}
+
+	edit_file() {
+		local file="$1"
+		send_stats "编辑变量文件 $file"
+		install nano
+		nano "$file"
+	}
+
+	source_files() {
+		echo "正在重新加载环境变量..."
+		send_stats "正在重新加载环境变量"
+		source "$BASHRC"
+		source "$PROFILE"
+		echo "✔ 环境变量已重新加载"
+		read -rp "按回车继续..."
+	}
+
+	while true; do
+		clear
+		echo "=========== 系统环境变量管理 =========="
+		echo "当前用户：$USER"
+		echo "--------------------------------------"
+		echo "1. 查看当前常用环境变量"
+		echo "2. 查看 ~/.bashrc"
+		echo "3. 查看 ~/.profile"
+		echo "4. 编辑 ~/.bashrc"
+		echo "5. 编辑 ~/.profile"
+		echo "6. 重新加载环境变量（source）"
+		echo "--------------------------------------"
+		echo "0. 返回上一级选单"
+		echo "--------------------------------------"
+		read -rp "请选择操作: " choice
+
+		case "$choice" in
+			1)
+				show_env_vars
+				;;
+			2)
+				view_file "$BASHRC"
+				;;
+			3)
+				view_file "$PROFILE"
+				;;
+			4)
+				edit_file "$BASHRC"
+				;;
+			5)
+				edit_file "$PROFILE"
+				;;
+			6)
+				source_files
+				;;
+			0)
+				break
+				;;
+			*)
+				echo "无效选项"
+				sleep 1
+				;;
+		esac
+	done
+}
 
 
 create_user_with_sshkey() {
@@ -14174,7 +14308,7 @@ linux_Settings() {
 	  echo -e "${gl_kjlan}37.  ${gl_bai}命令行历史记录                     ${gl_kjlan}38.  ${gl_bai}rsync远程同步工具"
 	  echo -e "${gl_kjlan}39.  ${gl_bai}命令收藏夹 ${gl_huang}★${gl_bai}                       ${gl_kjlan}40.  ${gl_bai}网卡管理工具"
 	  echo -e "${gl_kjlan}------------------------"
-	  echo -e "${gl_kjlan}41.  ${gl_bai}系统日志管理工具 ${gl_huang}★${gl_bai}"
+	  echo -e "${gl_kjlan}41.  ${gl_bai}系统日志管理工具 ${gl_huang}★${gl_bai}                 ${gl_kjlan}42.  ${gl_bai}系统变量管理工具"
 	  echo -e "${gl_kjlan}------------------------"
 	  echo -e "${gl_kjlan}61.  ${gl_bai}留言板                             ${gl_kjlan}66.  ${gl_bai}一条龙系统调优 ${gl_huang}★${gl_bai}"
 	  echo -e "${gl_kjlan}99.  ${gl_bai}重启服务器                         ${gl_kjlan}100. ${gl_bai}隐私与安全"
@@ -15089,6 +15223,12 @@ EOF
 			  clear
 			  log_menu
 			  ;;
+
+		  42)
+			  clear
+			  env_menu
+			  ;;
+
 
 		  61)
 			clear
