@@ -9636,6 +9636,8 @@ moltbot_menu() {
 		install tmux
 		tmux kill-session -t gateway > /dev/null 2>&1
 		tmux new -d -s gateway "openclaw gateway"
+		check_crontab_installed
+		crontab -l 2>/dev/null | grep -q "s gateway" || (crontab -l 2>/dev/null; echo "* * * * * tmux has-session -t gateway 2>/dev/null || tmux new -d -s gateway 'openclaw gateway'") | crontab -
 		sleep 3
 	}
 
@@ -9652,10 +9654,8 @@ moltbot_menu() {
 		source ~/.profile
 		openclaw doctor --fix
 		openclaw onboard --install-daemon
-		openclaw cron add \
-		  --name "Gateway Watchdog" \
-		  --every 2m \
-		  --system-event "Check if 'gateway' tmux session exists. If not, run: tmux new -d -s gateway \"openclaw gateway\" and notify user."
+		openclaw gateway stop
+		start_tmux
 		add_app_id
 		break_end
 
@@ -9702,7 +9702,7 @@ moltbot_menu() {
 		echo "更新 OpenClaw..."
 		openclaw update --restart
 		add_app_id
-		echo "卸载完成"
+		echo "更新完成"
 		break_end
 	}
 
