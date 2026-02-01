@@ -9720,16 +9720,16 @@ moltbot_menu() {
 			echo "备份: ${config_file}.bak.*"
 		fi
 
-		# 使用 jq 添加或合并 provider
-		jq \
-			--arg prov "$provider_name" \
-			--arg url "$base_url" \
-			--arg key "$api_key" \
-			--arg mid "$models_id" \
-			'
-			.models //= { mode: "merge", providers: {} };
-			.models.mode = "merge";
-			.models.providers[$prov] = {
+
+		jq --arg prov "$provider_name" \
+		   --arg url "$base_url" \
+		   --arg key "$api_key" \
+		   --arg mid "$models_id" \
+		'
+		.models |= (
+			(. // { mode: "merge", providers: {} })
+			| .mode = "merge"
+			| .providers[$prov] = {
 				baseUrl: $url,
 				apiKey: $key,
 				api: "openai-completions",
@@ -9749,7 +9749,8 @@ moltbot_menu() {
 					}
 				]
 			}
-			' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+		)
+		' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
 
 		if [[ $? -eq 0 ]]; then
 			echo "✅ 已添加 provider: $provider_name"
@@ -9772,7 +9773,7 @@ moltbot_menu() {
 
 		if [[ $? -eq 0 ]]; then
 			echo "🔄 设置默认模型并重启网关..."
-			openclaw config patch "{\"agents.defaults.model.primary\": \"$1/$2\"}" 2>/dev/null
+			openclaw models set "$1/$2"
 			start_tmux
 			echo "✅ 完成！当前默认模型: $1/$2"
 			openclaw status | grep -A2 "Sessions"
@@ -9843,7 +9844,10 @@ moltbot_menu() {
 
 
 	change_model() {
+		echo "所有模型:"
 		openclaw models list --all
+		echo "当前模型:"
+		openclaw models list
 		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o): "
 		read model
 		echo "切换模型为 $model"
