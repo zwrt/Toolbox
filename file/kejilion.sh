@@ -9621,10 +9621,11 @@ moltbot_menu() {
 		echo "--------------------"
 		echo "4. 日志查看"
 		echo "5. 换模型"
-		echo "6. TG输入连接码"
+		echo "6. 加新模型API"
+		echo "7. TG输入连接码"
 		echo "--------------------"
-		echo "7. 更新"
-		echo "8. 卸载"
+		echo "8. 更新"
+		echo "9. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -9682,6 +9683,165 @@ moltbot_menu() {
 		break_end
 	}
 
+
+
+	add-openclaw-provider() {
+		local config_file="${HOME}/.openclaw/openclaw.json"
+		local provider_name="$1"
+		local models_id="$2"
+		local base_url="$3"
+		local api_key="$4"
+
+		echo "=== 添加自定义 OpenAI 兼容模型到 OpenClaw ==="
+		echo "Provider: $provider_name"
+		echo "Model ID: $models_id"
+		echo "Base URL: $base_url"
+		echo "API Key: ${api_key:0:8}****"
+
+		# 检查参数
+		if [[ -z "$provider_name" || -z "$models_id" || -z "$base_url" || -z "$api_key" ]]; then
+			echo "错误：参数不能为空！"
+			echo "用法: add-openclaw-provider <provider> <model-id> <base-url> <api-key>"
+			return 1
+		fi
+
+		# 检查 jq
+		if ! command -v jq &> /dev/null; then
+			echo "安装 jq: apt update && apt install -y jq"
+			apt update && apt install -y jq || {
+				echo "安装 jq 失败"
+				return 1
+			}
+		fi
+
+		# 备份原文件
+		if [[ -f "$config_file" ]]; then
+			cp "$config_file" "${config_file}.bak.$(date +%s)"
+			echo "备份: ${config_file}.bak.*"
+		fi
+
+		# 使用 jq 添加或合并 provider
+		jq \
+			--arg prov "$provider_name" \
+			--arg url "$base_url" \
+			--arg key "$api_key" \
+			--arg mid "$models_id" \
+			'
+			.models //= { mode: "merge", providers: {} };
+			.models.mode = "merge";
+			.models.providers[$prov] = {
+				baseUrl: $url,
+				apiKey: $key,
+				api: "openai-completions",
+				models: [
+					{
+						id: $mid,
+						name: ($prov + " / " + $mid),
+						input: ["text"],
+						contextWindow: 131072,
+						maxTokens: 8192,
+						cost: {
+							input: 0.14,
+							output: 0.28,
+							cacheRead: 0,
+							cacheWrite: 0
+						}
+					}
+				]
+			}
+			' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+
+		if [[ $? -eq 0 ]]; then
+			echo "✅ 已添加 provider: $provider_name"
+			echo "📦 模型引用方式: $provider_name/$models_id"
+			echo "🔧 设置默认模型:"
+			echo "    openclaw config patch '{\"agents.defaults.model.primary\": \"$provider_name/$models_id\"}'"
+			echo "🔄 重启网关:"
+			echo "    openclaw gateway restart"
+		else
+			echo "❌ 添加失败，检查 jq 语法"
+			return 1
+		fi
+	}
+
+	# 可选：自动设置默认并重启
+	add-openclaw-provider-and-switch() {
+		install jq
+
+		add-openclaw-provider "$1" "$2" "$3" "$4"
+
+		if [[ $? -eq 0 ]]; then
+			echo "🔄 设置默认模型并重启网关..."
+			openclaw config patch "{\"agents.defaults.model.primary\": \"$1/$2\"}" 2>/dev/null
+			start_tmux
+			echo "✅ 完成！当前默认模型: $1/$2"
+			openclaw status | grep -A2 "Sessions"
+		fi
+	}
+
+
+
+
+
+	add-openclaw-provider-interactive() {
+		echo "=== 交互式添加 OpenClaw Provider ==="
+
+		# Provider 名称
+		read -rp "请输入 Provider 名称 (如: deepseek): " provider_name
+		while [[ -z "$provider_name" ]]; do
+			echo "❌ Provider 名称不能为空"
+			read -rp "请输入 Provider 名称: " provider_name
+		done
+
+		# Model ID
+		read -rp "请输入 Model ID (如: deepseek-chat): " model_id
+		while [[ -z "$model_id" ]]; do
+			echo "❌ Model ID 不能为空"
+			read -rp "请输入 Model ID: " model_id
+		done
+
+		# Base URL
+		read -rp "请输入 Base URL (如: https://api.xxx.com/v1): " base_url
+		while [[ -z "$base_url" ]]; do
+			echo "❌ Base URL 不能为空"
+			read -rp "请输入 Base URL: " base_url
+		done
+
+		# API Key（隐藏输入）
+		read -rsp "请输入 API Key (输入不显示): " api_key
+		echo
+		while [[ -z "$api_key" ]]; do
+			echo "❌ API Key 不能为空"
+			read -rsp "请输入 API Key: " api_key
+			echo
+		done
+
+		echo
+		echo "====== 确认信息 ======"
+		echo "Provider : $provider_name"
+		echo "Model ID : $model_id"
+		echo "Base URL : $base_url"
+		echo "API Key  : ${api_key:0:8}****"
+		echo "======================"
+
+		read -rp "确认添加？(y/N): " confirm
+		if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+			echo "❎ 已取消"
+			return 1
+		fi
+
+		echo
+		add-openclaw-provider-and-switch \
+			"$provider_name" \
+			"$model_id" \
+			"$base_url" \
+			"$api_key"
+	
+		break_end
+	}
+
+
+
 	change_model() {
 		openclaw models list --all
 		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o): "
@@ -9690,6 +9850,10 @@ moltbot_menu() {
 		openclaw models set "$model"
 		break_end
 	}
+
+
+
+
 
 
 	change_tg_bot_code() {
@@ -9728,19 +9892,15 @@ moltbot_menu() {
 			3) stop_bot ;;
 			4) view_logs ;;
 			5) change_model ;;
-			6) change_tg_bot_code ;;
-			7) update_moltbot ;;
-			8) uninstall_moltbot ;;
+			6) add-openclaw-provider-interactive ;;
+			7) change_tg_bot_code ;;
+			8) update_moltbot ;;
+			9) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
 
 }
-
-
-
-
-
 
 
 
