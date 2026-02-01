@@ -9683,6 +9683,7 @@ moltbot_menu() {
 	}
 
 	change_model() {
+		openclaw models list --all
 		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o): "
 		read model
 		echo "切换模型为 $model"
