@@ -9869,7 +9869,9 @@ moltbot_menu() {
 
 	update_moltbot() {
 		echo "更新 OpenClaw..."
-		openclaw update --restart
+		curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method git
+		openclaw gateway stop
+		start_tmux
 		add_app_id
 		echo "更新完成"
 		break_end
