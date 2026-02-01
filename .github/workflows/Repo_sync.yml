@@ -27,7 +27,6 @@ jobs:
         pwd
         wget -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
         wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh   #科技lion一键脚本工具
-        wget -O ./file/worker.js https://raw.githubusercontent.com/bulianglin/psub/main/worker.js   #不良林的worker搭建永久免费的私人反代订阅转换服务代码
         wget -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh   #DD重装系统脚本
         wget -O ./file/packages.sh https://raw.githubusercontent.com/kenzok8/AutoSync/refs/heads/main/.github/diy/small.sh
         git clone --depth=1 --branch=main https://github.com/walkxcode/dashboard-icons.git && cp -R dashboard-icons/png . && rm -rf dashboard-icons/
