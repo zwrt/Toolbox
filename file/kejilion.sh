@@ -9588,25 +9588,26 @@ linux_ldnmp() {
 moltbot_menu() {
 	local app_id="114"
 
-	send_stats "clawdbot/moltbot安装"
-	get_install_status() {
-		if command -v openclaw >/dev/null 2>&1; then
-			echo "${gl_lv}已安装${gl_bai}"
-		else
-			echo "${gl_hui}未安装${gl_bai}"
-		fi
-	}
-
-	get_running_status() {
-		if pgrep -f "openclaw gateway" >/dev/null 2>&1; then
-			echo "${gl_lv}运行中${gl_bai}"
-		else
-			echo "${gl_hui}未运行${gl_bai}"
-		fi
-	}
-
+	send_stats "clawdbot/moltbot管理"
 
 	show_menu() {
+
+		get_install_status() {
+			if command -v openclaw >/dev/null 2>&1; then
+				echo "${gl_lv}已安装${gl_bai}"
+			else
+				echo "${gl_hui}未安装${gl_bai}"
+			fi
+		}
+
+		get_running_status() {
+			if pgrep -f "openclaw gateway" >/dev/null 2>&1; then
+				echo "${gl_lv}运行中${gl_bai}"
+			else
+				echo "${gl_hui}未运行${gl_bai}"
+			fi
+		}
+
 		clear
 
 		local install_status=$(get_install_status)
@@ -9645,16 +9646,12 @@ moltbot_menu() {
 
 	install_moltbot() {
 		echo "开始安装 OpenClaw..."
+		send_stats "开始安装 OpenClaw..."
 
-		if [ -f /etc/os-release ]; then
-			. /etc/os-release
-			case "$ID" in
-				rhel|centos|almalinux|rocky|fedora|scientific|oracle)
-					dnf update -y
-					dnf groupinstall -y "Development Tools"
-					dnf install -y cmake
-					;;
-			esac
+		if command -v dnf &>/dev/null; then
+			dnf update -y
+			dnf groupinstall -y "Development Tools"
+			dnf install -y cmake
 		fi
 
 		country=$(curl -s ipinfo.io/country)
@@ -9673,12 +9670,14 @@ moltbot_menu() {
 
 	start_bot() {
 		echo "启动 OpenClaw..."
+		send_stats "启动 OpenClaw..."
 		start_tmux
 		break_end
 	}
 
 	stop_bot() {
 		echo "停止 OpenClaw..."
+		send_stats "停止 OpenClaw..."
 		install tmux
 		openclaw gateway stop
 		tmux kill-session -t gateway > /dev/null 2>&1
@@ -9687,6 +9686,7 @@ moltbot_menu() {
 
 	view_logs() {
 		echo "查看 OpenClaw 日志，Ctrl+C 退出"
+		send_stats "查看 OpenClaw 日志"
 		openclaw logs
 		break_end
 	}
@@ -9793,6 +9793,7 @@ moltbot_menu() {
 
 
 	add-openclaw-provider-interactive() {
+		send_stats "添加API"
 		echo "=== 交互式添加 OpenClaw Provider ==="
 
 		# Provider 名称
@@ -9852,6 +9853,7 @@ moltbot_menu() {
 
 
 	change_model() {
+		send_stats "换模型"
 		echo "所有模型:"
 		openclaw models list --all
 		echo "当前模型:"
@@ -9869,6 +9871,7 @@ moltbot_menu() {
 
 
 	change_tg_bot_code() {
+		send_stats "机器人对接"
 		printf "请输入TG机器人收到的连接码 (例如 Pairing code: NYA99R2F: "
 		read code
 		openclaw pairing approve telegram $code
@@ -9877,6 +9880,7 @@ moltbot_menu() {
 
 	update_moltbot() {
 		echo "更新 OpenClaw..."
+		send_stats "更新 OpenClaw..."
 		curl -fsSL https://openclaw.ai/install.sh | bash
 		openclaw gateway stop
 		start_tmux
@@ -9888,6 +9892,7 @@ moltbot_menu() {
 
 	uninstall_moltbot() {
 		echo "卸载 OpenClaw..."
+		send_stats "卸载 OpenClaw..."
 		openclaw uninstall
 		npm uninstall -g openclaw
 		sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
