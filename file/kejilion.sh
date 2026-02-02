@@ -9648,13 +9648,9 @@ moltbot_menu() {
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			pnpm config set registry https://registry.npmmirror.com
+			npm config set registry https://registry.npmmirror.com
 		fi
-		curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method git
-		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw
-		source ~/.bashrc
-		source ~/.profile
-		openclaw doctor --fix
-		openclaw onboard --install-daemon
+		curl -fsSL https://openclaw.ai/install.sh | bash
 		openclaw gateway stop
 		start_tmux
 		add_app_id
@@ -9837,7 +9833,7 @@ moltbot_menu() {
 			"$model_id" \
 			"$base_url" \
 			"$api_key"
-	
+
 		break_end
 	}
 
@@ -9869,7 +9865,7 @@ moltbot_menu() {
 
 	update_moltbot() {
 		echo "更新 OpenClaw..."
-		curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method git
+		curl -fsSL https://openclaw.ai/install.sh | bash
 		openclaw gateway stop
 		start_tmux
 		add_app_id
