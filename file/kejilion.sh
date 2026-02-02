@@ -9645,6 +9645,18 @@ moltbot_menu() {
 
 	install_moltbot() {
 		echo "开始安装 OpenClaw..."
+
+		if [ -f /etc/os-release ]; then
+			. /etc/os-release
+			case "$ID" in
+				rhel|centos|almalinux|rocky|fedora|scientific|oracle)
+					dnf update -y
+					dnf groupinstall -y "Development Tools"
+					dnf install -y cmake
+					;;
+			esac
+		fi
+
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			pnpm config set registry https://registry.npmmirror.com
