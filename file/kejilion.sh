@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.3.7"
+sh_v="4.3.8"
 
 
 gl_hui='\e[37m'
@@ -9624,10 +9624,11 @@ moltbot_menu() {
 		echo "5.  换模型"
 		echo "6.  加新模型API"
 		echo "7.  TG输入连接码"
-		echo "8.  编辑主配置文件"
+		echo "8.  安装插件（如：飞书）"
+		echo "9.  编辑主配置文件"
 		echo "--------------------"
-		echo "9.  更新"
-		echo "10. 卸载"
+		echo "10. 更新"
+		echo "11. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -9869,6 +9870,41 @@ moltbot_menu() {
 
 
 
+	install_plugin() {
+
+		send_stats "安装插件"
+		# 输出推荐的实用插件列表，便于用户复制
+		echo "推荐的实用插件（可直接复制名称输入）："
+		echo "@openclaw/voice-call    # 启用语音通话功能，支持 Twilio 集成"
+		echo "@openclaw/matrix        # 为 Matrix 协议提供消息通道集成"
+		echo "@openclaw/nostr         # 支持 Nostr 协议的消息通道"
+		echo "@adongguo/openclaw-dingtalk  # 集成钉钉消息通道"
+		echo "@openclaw/msteams       # 添加 Microsoft Teams 支持"
+
+		# 提示用户输入插件名称
+		echo -n "请输入要安装的插件名称（例如：@xzq-xu/feishu 飞书插件）： "
+		read plugin_name
+
+		# 验证输入是否为空
+		if [ -z "$plugin_name" ]; then
+			echo "错误：插件名称不能为空。请重试。"
+			return 1
+		fi
+
+		# 执行安装命令
+		echo "正在安装插件：$plugin_name"
+		openclaw plugins install "$plugin_name"
+		start_tmux
+
+		# 检查命令执行结果
+		if [ $? -eq 0 ]; then
+			echo "插件 $plugin_name 安装成功。"
+		else
+			echo "安装失败。请检查插件名称是否正确，或参考 OpenClaw 文档排查问题。"
+		fi
+
+		break_end
+	}
 
 
 	change_tg_bot_code() {
@@ -9915,13 +9951,14 @@ moltbot_menu() {
 			5) change_model ;;
 			6) add-openclaw-provider-interactive ;;
 			7) change_tg_bot_code ;;
-			8)
+			8) install_plugin ;;
+			9)
 				send_stats "编辑 OpenClaw 配置文件"
 				install nano
 				nano ~/.openclaw/openclaw.json
 				;;
-			9) update_moltbot ;;
-			10) uninstall_moltbot ;;
+			10) update_moltbot ;;
+			11) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
