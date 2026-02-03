@@ -9616,17 +9616,18 @@ moltbot_menu() {
 		echo -e "ClawdBot > MoltBot > OpenClaw 管理"
 		echo -e "$install_status $running_status"
 		echo "======================================="
-		echo "1. 安装"
-		echo "2. 启动"
-		echo "3. 停止"
+		echo "1.  安装"
+		echo "2.  启动"
+		echo "3.  停止"
 		echo "--------------------"
-		echo "4. 日志查看"
-		echo "5. 换模型"
-		echo "6. 加新模型API"
-		echo "7. TG输入连接码"
+		echo "4.  日志查看"
+		echo "5.  换模型"
+		echo "6.  加新模型API"
+		echo "7.  TG输入连接码"
+		echo "8.  编辑主配置文件"
 		echo "--------------------"
-		echo "8. 更新"
-		echo "9. 卸载"
+		echo "9.  更新"
+		echo "10. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -9914,8 +9915,13 @@ moltbot_menu() {
 			5) change_model ;;
 			6) add-openclaw-provider-interactive ;;
 			7) change_tg_bot_code ;;
-			8) update_moltbot ;;
-			9) uninstall_moltbot ;;
+			8)
+				send_stats "编辑 OpenClaw 配置文件"
+				install nano
+				nano ~/.openclaw/openclaw.json
+				;;
+			9) update_moltbot ;;
+			10) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
