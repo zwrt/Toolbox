@@ -9590,6 +9590,32 @@ moltbot_menu() {
 
 	send_stats "clawdbot/moltbot管理"
 
+	check_openclaw_update() {
+		# 先检查 NPM 是否可用
+		if ! command -v npm >/dev/null 2>&1; then
+			return 1
+		fi
+
+		# 使用 NPM 查询本地版本，并去除前缀（如 openclaw@）
+		local_version=$(npm list -g openclaw --depth=0 | grep openclaw | awk '{print $NF}' | sed 's/^.*@//' 2>/dev/null)
+		if [ -z "$local_version" ]; then
+			return 1
+		fi
+
+		# 使用 NPM 查询远程版本
+		remote_version=$(npm view openclaw version 2>/dev/null)
+		if [ -z "$remote_version" ]; then
+			return 1
+		fi
+
+		if [ "$local_version" != "$remote_version" ]; then
+			echo "${gl_huang}检测到新版本:$remote_version${gl_bai}"
+		else
+			echo "${gl_lv}当前版本已是最新:$local_version${gl_bai}"
+		fi
+	}
+
+
 	show_menu() {
 
 		get_install_status() {
@@ -9612,9 +9638,11 @@ moltbot_menu() {
 
 		local install_status=$(get_install_status)
 		local running_status=$(get_running_status)
+		local update_message=$(check_openclaw_update)
+
 		echo "======================================="
 		echo -e "ClawdBot > MoltBot > OpenClaw 管理"
-		echo -e "$install_status $running_status"
+		echo -e "$install_status $running_status $update_message"
 		echo "======================================="
 		echo "1.  安装"
 		echo "2.  启动"
