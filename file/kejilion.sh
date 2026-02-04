@@ -3652,20 +3652,20 @@ ldnmp_Proxy_backend_stream() {
 	echo "开始部署 $webname"
 
 	# 获取代理名称
-	read -rp "请输入代理转发名称 (如 mysql_proxy): " proxy_name
+	read -erp "请输入代理转发名称 (如 mysql_proxy): " proxy_name
 	if [ -z "$proxy_name" ]; then
 		echo "名称不能为空"; return 1
 	fi
 
 	# 获取监听端口
-	read -rp "请输入本机监听端口 (如 3306): " listen_port
+	read -erp "请输入本机监听端口 (如 3306): " listen_port
 	if ! [[ "$listen_port" =~ ^[0-9]+$ ]]; then
 		echo "端口必须是数字"; return 1
 	fi
 
 	echo "请选择协议类型："
 	echo "1. TCP    2. UDP"
-	read -rp "请输入序号 [1-2]: " proto_choice
+	read -erp "请输入序号 [1-2]: " proto_choice
 
 	case "$proto_choice" in
 		1) proto="tcp"; listen_suffix="" ;;
@@ -9827,24 +9827,24 @@ moltbot_menu() {
 		echo "=== 交互式添加 OpenClaw Provider ==="
 
 		# Provider 名称
-		read -rp "请输入 Provider 名称 (如: deepseek): " provider_name
+		read -erp "请输入 Provider 名称 (如: deepseek): " provider_name
 		while [[ -z "$provider_name" ]]; do
 			echo "❌ Provider 名称不能为空"
-			read -rp "请输入 Provider 名称: " provider_name
+			read -erp "请输入 Provider 名称: " provider_name
 		done
 
 		# Model ID
-		read -rp "请输入 Model ID (如: deepseek-chat): " model_id
+		read -erp "请输入 Model ID (如: deepseek-chat): " model_id
 		while [[ -z "$model_id" ]]; do
 			echo "❌ Model ID 不能为空"
-			read -rp "请输入 Model ID: " model_id
+			read -erp "请输入 Model ID: " model_id
 		done
 
 		# Base URL
-		read -rp "请输入 Base URL (如: https://api.xxx.com/v1): " base_url
+		read -erp "请输入 Base URL (如: https://api.xxx.com/v1): " base_url
 		while [[ -z "$base_url" ]]; do
 			echo "❌ Base URL 不能为空"
-			read -rp "请输入 Base URL: " base_url
+			read -erp "请输入 Base URL: " base_url
 		done
 
 		# API Key（隐藏输入）
@@ -9864,7 +9864,7 @@ moltbot_menu() {
 		echo "API Key  : ${api_key:0:8}****"
 		echo "======================"
 
-		read -rp "确认添加？(y/N): " confirm
+		read -erp "确认添加？(y/N): " confirm
 		if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
 			echo "❎ 已取消"
 			return 1
@@ -9889,7 +9889,7 @@ moltbot_menu() {
 		echo "当前模型:"
 		openclaw models list
 		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o)（输入 0 退出）： "
-		read model
+		read -e model
 
 		# 检查是否输入 0 以退出
 		if [ "$model" = "0" ]; then
@@ -9927,7 +9927,7 @@ moltbot_menu() {
 
 		# 提示用户输入插件名称
 		echo -n "请输入要安装的插件名称（例如：@xzq-xu/feishu 飞书插件）（输入 0 退出）： "
-		read plugin_name
+		read -e plugin_name
 
 		if [ "$plugin_name" = "0" ]; then
 			echo "操作已取消。"
@@ -9971,7 +9971,7 @@ moltbot_menu() {
 
 		# 提示用户输入技能名称
 		echo -n "请输入要安装的技能名称（例如：github-integration）（输入 0 退出）： "
-		read skill_name
+		read -e skill_name
 
 		if [ "$skill_name" = "0" ]; then
 			echo "操作已取消。"
@@ -10004,7 +10004,7 @@ moltbot_menu() {
 	change_tg_bot_code() {
 		send_stats "机器人对接"
 		printf "请输入TG机器人收到的连接码 (例如 Pairing code: NYA99R2F)（输入 0 退出）： "
-		read code
+		read -e code
 
 		# 检查是否输入 0 以退出
 		if [ "$code" = "0" ]; then
@@ -14271,32 +14271,32 @@ net_menu() {
 		echo "4. 刷新网卡信息"
 		echo "0. 返回上一级选单"
 		echo "===================================="
-		read -rp "请选择操作: " choice
+		read -erp "请选择操作: " choice
 
 		case $choice in
 			1)
 				send_stats "启用网卡"
-				read -rp "请输入要启用的网卡名: " nic
+				read -erp "请输入要启用的网卡名: " nic
 				if ip link show "$nic" &>/dev/null; then
 					ip link set "$nic" up && echo "✔ 网卡 $nic 已启用"
 				else
 					echo "✘ 网卡不存在"
 				fi
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			2)
 				send_stats "禁用网卡"
-				read -rp "请输入要禁用的网卡名: " nic
+				read -erp "请输入要禁用的网卡名: " nic
 				if ip link show "$nic" &>/dev/null; then
 					ip link set "$nic" down && echo "✔ 网卡 $nic 已禁用"
 				else
 					echo "✘ 网卡不存在"
 				fi
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			3)
 				send_stats "查看网卡详情"
-				read -rp "请输入要查看的网卡名: " nic
+				read -erp "请输入要查看的网卡名: " nic
 				if ip link show "$nic" &>/dev/null; then
 					echo "========== $nic 详细信息 =========="
 					ip addr show "$nic"
@@ -14304,7 +14304,7 @@ net_menu() {
 				else
 					echo "✘ 网卡不存在"
 				fi
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			4)
 				send_stats "刷新网卡信息"
@@ -14347,25 +14347,25 @@ log_menu() {
 		echo "5. 清理旧 journal 日志"
 		echo "0. 返回上一级选单"
 		echo "======================================="
-		read -rp "请选择操作: " choice
+		read -erp "请选择操作: " choice
 
 		case $choice in
 			1)
 				send_stats "查看最近日志"
-				read -rp "查看最近多少行日志？[默认 100]: " lines
+				read -erp "查看最近多少行日志？[默认 100]: " lines
 				lines=${lines:-100}
 				journalctl -n "$lines" --no-pager
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			2)
 				send_stats "查看指定服务日志"
-				read -rp "请输入服务名（如 sshd、nginx）: " svc
+				read -erp "请输入服务名（如 sshd、nginx）: " svc
 				if systemctl list-unit-files | grep -q "^$svc"; then
 					journalctl -u "$svc" -n 100 --no-pager
 				else
 					echo "✘ 服务不存在或无日志"
 				fi
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			3)
 				send_stats "查看登录/安全日志"
@@ -14380,17 +14380,17 @@ log_menu() {
 				else
 					echo "未找到安全日志文件"
 				fi
-				read -rp "按回车继续..."
+				read -erp "按回车继续..."
 				;;
 			4)
 				send_stats "实时跟踪日志"
 				echo "1) 系统日志"
 				echo "2) 指定服务日志"
-				read -rp "选择跟踪类型: " t
+				read -erp "选择跟踪类型: " t
 				if [ "$t" = "1" ]; then
 					journalctl -f
 				elif [ "$t" = "2" ]; then
-					read -rp "输入服务名: " svc
+					read -erp "输入服务名: " svc
 					journalctl -u "$svc" -f
 				else
 					echo "无效选择"
@@ -14402,7 +14402,7 @@ log_menu() {
 				echo "1) 保留最近 7 天"
 				echo "2) 保留最近 3 天"
 				echo "3) 限制日志最大 500M"
-				read -rp "请选择清理方式: " c
+				read -erp "请选择清理方式: " c
 				case $c in
 					1) journalctl --vacuum-time=7d ;;
 					2) journalctl --vacuum-time=3d ;;
@@ -14468,7 +14468,7 @@ env_menu() {
 
 		echo
 		echo "==============================================="
-		read -rp "按回车继续..."
+		read -erp "按回车继续..."
 	}
 
 
@@ -14483,7 +14483,7 @@ env_menu() {
 		else
 			echo "文件不存在：$file"
 		fi
-		read -rp "按回车继续..."
+		read -erp "按回车继续..."
 	}
 
 	edit_file() {
@@ -14499,7 +14499,7 @@ env_menu() {
 		source "$BASHRC"
 		source "$PROFILE"
 		echo "✔ 环境变量已重新加载"
-		read -rp "按回车继续..."
+		read -erp "按回车继续..."
 	}
 
 	while true; do
@@ -14516,7 +14516,7 @@ env_menu() {
 		echo "--------------------------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------------------------"
-		read -rp "请选择操作: " choice
+		read -erp "请选择操作: " choice
 
 		case "$choice" in
 			1)
