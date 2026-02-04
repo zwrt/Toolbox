@@ -10046,6 +10046,12 @@ moltbot_menu() {
 		break_end
 	}
 
+	nano_openclaw_json() {
+		send_stats "编辑 OpenClaw 配置文件"
+		install nano
+		nano ~/.openclaw/openclaw.json
+		start_tmux
+	}
 
 	# 主循环
 	while true; do
@@ -10061,11 +10067,7 @@ moltbot_menu() {
 			7) change_tg_bot_code ;;
 			8) install_plugin ;;
 			9) install_skill ;;
-			10)
-				send_stats "编辑 OpenClaw 配置文件"
-				install nano
-				nano ~/.openclaw/openclaw.json
-				;;
+			10) nano_openclaw_json ;;
 			11) update_moltbot ;;
 			12) uninstall_moltbot ;;
 			*) break ;;
