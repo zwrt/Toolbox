@@ -9615,24 +9615,24 @@ moltbot_menu() {
 		fi
 	}
 
+	get_install_status() {
+		if command -v openclaw >/dev/null 2>&1; then
+			echo "${gl_lv}已安装${gl_bai}"
+		else
+			echo "${gl_hui}未安装${gl_bai}"
+		fi
+	}
+
+	get_running_status() {
+		if pgrep -f "openclaw gateway" >/dev/null 2>&1; then
+			echo "${gl_lv}运行中${gl_bai}"
+		else
+			echo "${gl_hui}未运行${gl_bai}"
+		fi
+	}
 
 	show_menu() {
 
-		get_install_status() {
-			if command -v openclaw >/dev/null 2>&1; then
-				echo "${gl_lv}已安装${gl_bai}"
-			else
-				echo "${gl_hui}未安装${gl_bai}"
-			fi
-		}
-
-		get_running_status() {
-			if pgrep -f "openclaw gateway" >/dev/null 2>&1; then
-				echo "${gl_lv}运行中${gl_bai}"
-			else
-				echo "${gl_hui}未运行${gl_bai}"
-			fi
-		}
 
 		clear
 
@@ -10040,6 +10040,7 @@ moltbot_menu() {
 		openclaw uninstall
 		npm uninstall -g openclaw
 		crontab -l 2>/dev/null | grep -v "s gateway" | crontab -
+		hash -r
 		sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
 		echo "卸载完成"
 		break_end
