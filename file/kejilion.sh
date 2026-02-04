@@ -9884,28 +9884,41 @@ moltbot_menu() {
 
 	change_model() {
 		send_stats "换模型"
-		echo "所有模型:"
-		openclaw models list --all
-		echo "当前模型:"
-		openclaw models list
-		printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o)（输入 0 退出）： "
-		read -e model
 
-		# 检查是否输入 0 以退出
-		if [ "$model" = "0" ]; then
-			echo "操作已取消。"
-			return 0  # 正常退出函数
-		fi
+		while true; do
+			clear
+			echo "--- 模型管理 ---"
+			echo "所有模型:"
+			openclaw models list --all
+			echo "----------------"
+			echo "当前模型:"
+			openclaw models list
+			echo "----------------"
 
-		# 验证输入是否为空
-		if [ -z "$model" ]; then
-			echo "错误：模型名称不能为空。请重试。"
-			return 1
-		fi
+			printf "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o)（输入 0 退出）： "
+			read -e model
 
-		echo "切换模型为 $model"
-		openclaw models set "$model"
-		break_end
+			# 1. 检查是否输入 0 以退出
+			if [ "$model" = "0" ]; then
+				echo "操作已取消，正在退出..."
+				break  # 跳出 while 循环
+
+			fi
+
+			# 2. 验证输入是否为空
+			if [ -z "$model" ]; then
+				echo "错误：模型名称不能为空。请重试。"
+				echo "" # 换行美化
+				continue # 跳过本次循环，重新开始
+			fi
+
+			# 3. 执行切换逻辑
+			echo "正在切换模型为: $model ..."
+			openclaw models set "$model"
+
+			break_end
+		done
+
 	}
 
 
@@ -9914,89 +9927,111 @@ moltbot_menu() {
 	install_plugin() {
 
 		send_stats "安装插件"
+		while true; do
+			clear
+			echo "========================================"
+			echo "            插件管理 (安装)            "
+			echo "========================================"
+			echo "当前已安装插件:"
+			openclaw plugins list
+			echo "----------------------------------------"
 
-		echo "所有插件"
-		openclaw plugins list
-		# 输出推荐的实用插件列表，便于用户复制
-		echo "推荐的实用插件（可直接复制名称输入）："
-		echo "@openclaw/voice-call    # 启用语音通话功能，支持 Twilio 集成"
-		echo "@openclaw/matrix        # 为 Matrix 协议提供消息通道集成"
-		echo "@openclaw/nostr         # 支持 Nostr 协议的消息通道"
-		echo "@adongguo/openclaw-dingtalk  # 集成钉钉消息通道"
-		echo "@openclaw/msteams       # 添加 Microsoft Teams 支持"
+			# 输出推荐的实用插件列表，便于用户复制
+			echo "推荐的实用插件（可直接复制名称输入）："
+			echo "@openclaw/voice-call         # 语音通话 (Twilio)"
+			echo "@openclaw/matrix             # Matrix 协议"
+			echo "@openclaw/nostr              # Nostr 协议"
+			echo "@adongguo/openclaw-dingtalk  # 钉钉集成"
+			echo "@openclaw/msteams            # Microsoft Teams"
+			echo "----------------------------------------"
 
-		# 提示用户输入插件名称
-		echo -n "请输入要安装的插件名称（例如：@xzq-xu/feishu 飞书插件）（输入 0 退出）： "
-		read -e plugin_name
+			# 提示用户输入插件名称
+			printf "请输入要安装的插件名称（输入 0 退出）： "
+			read -e plugin_name
 
-		if [ "$plugin_name" = "0" ]; then
-			echo "操作已取消。"
-			return 0  # 正常退出函数
-		fi
+			# 1. 检查是否输入 0 以退出
+			if [ "$plugin_name" = "0" ]; then
+				echo "操作已取消，退出插件安装。"
+				break
+			fi
 
-		# 验证输入是否为空
-		if [ -z "$plugin_name" ]; then
-			echo "错误：插件名称不能为空。请重试。"
-			return 1
-		fi
+			# 2. 验证输入是否为空
+			if [ -z "$plugin_name" ]; then
+				echo "错误：插件名称不能为空，请重新输入。"
+				echo ""
+				continue
+			fi
 
-		# 执行安装命令
-		echo "正在安装插件：$plugin_name"
-		openclaw plugins install "$plugin_name"
-		start_tmux
+			# 3. 执行安装命令
+			echo "正在安装插件：$plugin_name ..."
+			openclaw plugins install "$plugin_name"
 
-		# 检查命令执行结果
-		if [ $? -eq 0 ]; then
-			echo "插件 $plugin_name 安装成功。"
-		else
-			echo "安装失败。请检查插件名称是否正确，或参考 OpenClaw 文档排查问题。"
-		fi
+			# 检查命令执行结果 ($? 获取上一条命令的状态码)
+			if [ $? -eq 0 ]; then
+				echo "✅ 插件 $plugin_name 安装成功！"
+				start_tmux
+			else
+				echo "❌ 安装失败。请检查名称是否正确或查看网络连接。"
+			fi
 
-		break_end
+			break_end
+		done
 	}
 
 
 	install_skill() {
 		send_stats "安装技能"
+		while true; do
+			clear
+			echo "========================================"
+			echo "            技能管理 (安装)            "
+			echo "========================================"
+			echo "当前已安装技能:"
+			openclaw skills list
+			echo "----------------------------------------"
 
-		echo "所有技能"
-		openclaw skills list
-		# 输出推荐的实用技能列表，便于用户复制
-		echo "推荐的实用技能（可直接复制名称输入）："
-		echo "github-integration    # 管理 GitHub Issues 和 Pull Requests，支持 Webhook"
-		echo "notion-integration    # 操作 Notion 数据库和页面"
-		echo "apple-notes           # 管理 macOS/iOS 的 Apple Notes"
-		echo "home-assistant        # 通过 Home Assistant Hub 控制智能家居"
-		echo "agent-browser         # 使用 Playwright 进行无头浏览器自动化"
+			# 输出推荐的实用技能列表
+			echo "推荐的实用技能（可直接复制名称输入）："
+			echo "github-integration    # 管理 GitHub Issues/PR"
+			echo "notion-integration    # 操作 Notion 数据库"
+			echo "apple-notes           # 管理 Apple Notes"
+			echo "home-assistant        # 控制智能家居"
+			echo "agent-browser         # Playwright 浏览器自动化"
+			echo "----------------------------------------"
 
-		# 提示用户输入技能名称
-		echo -n "请输入要安装的技能名称（例如：github-integration）（输入 0 退出）： "
-		read -e skill_name
+			# 提示用户输入技能名称
+			printf "请输入要安装的技能名称（输入 0 退出）： "
+			read -e skill_name
 
-		if [ "$skill_name" = "0" ]; then
-			echo "操作已取消。"
-			return 0  # 正常退出函数
-		fi
+			# 1. 检查是否输入 0 以退出
+			if [ "$skill_name" = "0" ]; then
+				echo "操作已取消，退出技能安装。"
+				break
+			fi
 
-		# 验证输入是否为空
-		if [ -z "$skill_name" ]; then
-			echo "错误：技能名称不能为空。请重试。"
-			return 1
-		fi
+			# 2. 验证输入是否为空
+			if [ -z "$skill_name" ]; then
+				echo "错误：技能名称不能为空。请重试。"
+				echo ""
+				continue
+			fi
 
-		# 执行安装命令
-		echo "正在安装技能：$skill_name"
-		openclaw skills install "$skill_name"
-		start_tmux
+			# 3. 执行安装命令
+			echo "正在安装技能：$skill_name ..."
+			openclaw skills install "$skill_name"
 
-		# 检查命令执行结果
-		if [ $? -eq 0 ]; then
-			echo "技能 $skill_name 安装成功。"
-		else
-			echo "安装失败。请检查技能名称是否正确，或参考 OpenClaw 文档排查问题。"
-		fi
+			# 获取上一条命令的退出状态
+			if [ $? -eq 0 ]; then
+				echo "✅ 技能 $skill_name 安装成功。"
+				# 执行重启/启动服务逻辑
+				start_tmux
+			else
+				echo "❌ 安装失败。请检查技能名称是否正确，或参考文档排查。"
+			fi
 
-		break_end
+			break_end
+		done
+
 	}
 
 
@@ -10021,6 +10056,7 @@ moltbot_menu() {
 		openclaw pairing approve telegram $code
 		break_end
 	}
+
 
 	update_moltbot() {
 		echo "更新 OpenClaw..."
