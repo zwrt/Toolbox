@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.3.8"
+sh_v="4.3.9"
 
 
 gl_hui='\e[37m'
@@ -9685,9 +9685,11 @@ moltbot_menu() {
 		echo "8.  安装插件（如：飞书）"
 		echo "9.  安装技能（skills）"
 		echo "10. 编辑主配置文件"
+		echo "11. 初始化配置向导"
+		echo "12. 健康检测与修复"
 		echo "--------------------"
-		echo "11. 更新"
-		echo "12. 卸载"
+		echo "13. 更新"
+		echo "14. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -10134,8 +10136,16 @@ moltbot_menu() {
 			8) install_plugin ;;
 			9) install_skill ;;
 			10) nano_openclaw_json ;;
-			11) update_moltbot ;;
-			12) uninstall_moltbot ;;
+			11) send_stats "初始化配置向导"
+				clawdbot onboard --install-daemon
+				break_end
+				;;
+			12) send_stats "健康检测与修复"
+				clawdbot doctor --fix
+				break_end
+			 	;;
+			13) update_moltbot ;;
+			14) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
