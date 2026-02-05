@@ -6651,37 +6651,65 @@ list_partitions() {
 	lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT | grep -v "sr\|loop"
 }
 
-# 挂载分区
+
+# 持久化挂载分区
 mount_partition() {
 	send_stats "挂载分区"
 	read -e -p "请输入要挂载的分区名称（例如 sda1）: " PARTITION
 
+	DEVICE="/dev/$PARTITION"
+	MOUNT_POINT="/mnt/$PARTITION"
+
 	# 检查分区是否存在
-	if ! lsblk -o NAME | grep -w "$PARTITION" > /dev/null; then
+	if ! lsblk -no NAME | grep -qw "$PARTITION"; then
 		echo "分区不存在！"
-		return
+		return 1
 	fi
 
-	# 检查分区是否已经挂载
-	if lsblk -o MOUNTPOINT | grep -w "$PARTITION" > /dev/null; then
+	# 检查是否已挂载
+	if mount | grep -qw "$DEVICE"; then
 		echo "分区已经挂载！"
-		return
+		return 1
+	fi
+
+	# 获取 UUID
+	UUID=$(blkid -s UUID -o value "$DEVICE")
+	if [ -z "$UUID" ]; then
+		echo "无法获取 UUID！"
+		return 1
+	fi
+
+	# 获取文件系统类型
+	FSTYPE=$(blkid -s TYPE -o value "$DEVICE")
+	if [ -z "$FSTYPE" ]; then
+		echo "无法获取文件系统类型！"
+		return 1
 	fi
 
 	# 创建挂载点
-	MOUNT_POINT="/mnt/$PARTITION"
 	mkdir -p "$MOUNT_POINT"
 
-	# 挂载分区
-	mount "/dev/$PARTITION" "$MOUNT_POINT"
-
-	if [ $? -eq 0 ]; then
-		echo "分区挂载成功: $MOUNT_POINT"
-	else
+	# 挂载
+	if ! mount "$DEVICE" "$MOUNT_POINT"; then
 		echo "分区挂载失败！"
 		rmdir "$MOUNT_POINT"
+		return 1
 	fi
+
+	echo "分区已成功挂载到 $MOUNT_POINT"
+
+	# 检查 /etc/fstab 是否已经存在 UUID 或挂载点
+	if grep -qE "UUID=$UUID|[[:space:]]$MOUNT_POINT[[:space:]]" /etc/fstab; then
+		echo "/etc/fstab 中已存在该分区记录，跳过写入"
+		return 0
+	fi
+
+	# 写入 /etc/fstab
+	echo "UUID=$UUID $MOUNT_POINT $FSTYPE defaults,nofail 0 2" >> /etc/fstab
+
+	echo "已写入 /etc/fstab，实现持久化挂载"
 }
+
 
 # 卸载分区
 unmount_partition() {
