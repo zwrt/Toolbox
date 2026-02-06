@@ -10288,7 +10288,7 @@ moltbot_menu() {
 	# 添加域名（调用你给的函数）
 	openclaw_domain_webui() {
 		add_yuming
-		ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
+		ldnmp_Proxy ${yuming} 127.0.0.1 18789
 
 		token=$(
 			openclaw dashboard 2>/dev/null \
