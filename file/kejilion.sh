@@ -9686,9 +9686,10 @@ moltbot_menu() {
 		echo "10. 编辑主配置文件"
 		echo "11. 配置向导"
 		echo "12. 健康检测与修复"
+		echo "13. WebUI访问与设置"
 		echo "--------------------"
-		echo "13. 更新"
-		echo "14. 卸载"
+		echo "14. 更新"
+		echo "15. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -10231,6 +10232,132 @@ moltbot_menu() {
 		start_tmux
 	}
 
+
+
+
+
+
+	openclaw_find_webui_domain() {
+		local conf domain_list
+
+		domain_list=$(
+			grep -R "18789" /home/web/conf.d/*.conf 2>/dev/null \
+			| awk -F: '{print $1}' \
+			| sort -u \
+			| while read conf; do
+				basename "$conf" .conf
+			done
+		)
+
+		if [ -n "$domain_list" ]; then
+			echo "$domain_list"
+		fi
+	}
+
+
+
+	openclaw_show_webui_addr() {
+		local local_ip token domains
+
+		echo "=================================="
+		echo "OpenClaw WebUI 访问地址"
+		local_ip="127.0.0.1"
+
+		token=$(
+			openclaw dashboard 2>/dev/null \
+			| sed -n 's/.*:18789\/?token=\([a-f0-9]\+\).*/\1/p' \
+			| head -n 1
+		)
+		echo
+		echo "本机地址："
+		echo "http://${local_ip}:18789/?token=${token}"
+
+		domains=$(openclaw_find_webui_domain)
+		if [ -n "$domains" ]; then
+			echo "域名地址："
+			echo "$domains" | while read d; do
+				echo "https://${d}/?token=${token}"
+			done
+		fi
+
+		echo "=================================="
+	}
+
+
+
+	# 添加域名（调用你给的函数）
+	openclaw_domain_webui() {
+		add_yuming
+		ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
+
+		token=$(
+			openclaw dashboard 2>/dev/null \
+			| sed -n 's/.*:18789\/?token=\([a-f0-9]\+\).*/\1/p' \
+			| head -n 1
+		)
+
+		clear
+		echo "访问地址:"
+		echo "https://${yuming}/?token=$token"
+		echo "先访问URL触发设备ID，然后回车下一步进行配对。"
+		read
+		echo -e "${gl_kjlan}正在加载设备列表……${gl_bai}"
+		openclaw devices list
+
+		read -e -p "请输入 Request_Key: " Request_Key
+
+		[ -z "$Request_Key" ] && {
+			echo "Request_Key 不能为空"
+			return 1
+		}
+
+		openclaw devices approve "$Request_Key"
+
+	}
+
+	# 删除域名
+	openclaw_remove_domain() {
+		echo "域名格式 example.com 不带https://"
+		web_del
+	}
+
+	# 主菜单
+	openclaw_webui_menu() {
+
+		send_stats "WebUI访问与设置"
+		while true; do
+			clear
+			openclaw_show_webui_addr
+			echo
+			echo "1. 添加域名访问"
+			echo "2. 删除域名访问"
+			echo "0. 退出"
+			echo
+			read -e -p "请选择: " choice
+
+			case "$choice" in
+				1)
+					openclaw_domain_webui
+					echo
+					read -p "按回车返回菜单..."
+					;;
+				2)
+					openclaw_remove_domain
+					read -p "按回车返回菜单..."
+					;;
+				0)
+					break
+					;;
+				*)
+					echo "无效选项"
+					sleep 1
+					;;
+			esac
+		done
+	}
+
+
+
 	# 主循环
 	while true; do
 		show_menu
@@ -10254,8 +10381,9 @@ moltbot_menu() {
 				openclaw doctor --fix
 				break_end
 			 	;;
-			13) update_moltbot ;;
-			14) uninstall_moltbot ;;
+			13) openclaw_webui_menu ;;
+			14) update_moltbot ;;
+			15) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
