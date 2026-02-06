@@ -9997,21 +9997,121 @@ moltbot_menu() {
 				continue
 			fi
 
-			# 3. 执行安装命令
-			echo "正在安装插件：$plugin_name ..."
-			openclaw plugins install "$plugin_name"
+			# 1. 彻底清理之前失败的残留（用户目录）
+			rm -rf "/root/.openclaw/extensions/$plugin_name"
 
-			# 检查命令执行结果 ($? 获取上一条命令的状态码)
-			if [ $? -eq 0 ]; then
-				echo "✅ 插件 $plugin_name 安装成功！"
-				start_tmux
+			# 2. 检查系统是否已经预装（防止 duplicate id 冲突）
+			if [ -d "/usr/lib/node_modules/openclaw/extensions/$plugin_name" ]; then
+				echo "💡 检测到系统目录已存在该插件，正在直接激活..."
+				openclaw plugins enable "$plugin_name"
 			else
-				echo "❌ 安装失败。请检查名称是否正确或查看网络连接。"
+				echo "📥 正在通过官方渠道下载安装插件..."
+				# 使用 openclaw 自己的 install 命令，它会自动处理 package.json 的规范检查
+				openclaw plugins install "$plugin_name"
+
+				# 3. 如果 openclaw install 报错，再尝试作为普通 npm 包安装（最后的备选）
+				if [ $? -ne 0 ]; then
+					echo "⚠️ 官方安装失败，尝试通过 npm 全局强制安装..."
+					npm install -g "$plugin_name" --unsafe-perm
+				fi
+
+				# 4. 最后统一执行启用
+				openclaw plugins enable "$plugin_name"
 			fi
 
+			start_tmux
 			break_end
 		done
 	}
+
+	install_plugin() {
+		send_stats "安装插件"
+		while true; do
+			clear
+			echo "========================================"
+			echo "            插件管理 (安装)            "
+			echo "========================================"
+			echo "当前插件列表:"
+			openclaw plugins list
+			echo "--------------------------------------------------------"
+			echo "推荐的常用插件 ID (直接复制括号内的 ID 即可):"
+			echo "--------------------------------------------------------"
+			echo "📱 通讯渠道:"
+			echo "  - [feishu]       	# 飞书/Lark 集成"
+			echo "  - [telegram]     	# Telegram 机器人"
+			echo "  - [slack]        	# Slack 企业通讯"
+			echo "  - [msteams]      	# Microsoft Teams"
+			echo "  - [discord]      	# Discord 社区管理"
+			echo "  - [whatsapp]     	# WhatsApp 自动化"
+			echo ""
+			echo "🧠 记忆与 AI:"
+			echo "  - [memory-core]  	# 基础记忆 (文件检索)"
+			echo "  - [memory-lancedb]	# 增强记忆 (向量数据库)"
+			echo "  - [copilot-proxy]	# Copilot 接口转发"
+			echo ""
+			echo "⚙️ 功能扩展:"
+			echo "  - [lobster]      	# 审批流 (带人工确认)"
+			echo "  - [voice-call]   	# 语音通话能力"
+			echo "  - [nostr]        	# 加密隐私聊天"
+			echo "--------------------------------------------------------"
+
+			read -e -p "请输入插件 ID（输入 0 退出）： " raw_input
+
+			[ "$raw_input" = "0" ] && break
+			[ -z "$raw_input" ] && continue
+
+			# 1. 自动处理：如果用户输入带 @openclaw/，提取纯 ID 方便路径检查
+			local plugin_id=$(echo "$raw_input" | sed 's|^@openclaw/||')
+			local plugin_full="$raw_input"
+
+			echo "🔍 正在检查插件状态..."
+
+			# 2. 检查是否已经在 list 中且为 disabled (最常见的情况)
+			if echo "$plugin_list" | grep -qW "$plugin_id" && echo "$plugin_list" | grep "$plugin_id" | grep -q "disabled"; then
+				echo "💡 插件 [$plugin_id] 已预装，正在激活..."
+				openclaw plugins enable "$plugin_id" && echo "✅ 激活成功" || echo "❌ 激活失败"
+
+			# 3. 检查系统物理目录是否存在
+			elif [ -d "/usr/lib/node_modules/openclaw/extensions/$plugin_id" ]; then
+				echo "💡 发现系统内置目录存在该插件，尝试直接启用..."
+				openclaw plugins enable "$plugin_id"
+
+			else
+				# 4. 远程安装逻辑
+				echo "📥 本地未发现，尝试下载安装..."
+
+				# 清理旧的失败残留
+				rm -rf "/root/.openclaw/extensions/$plugin_id"
+
+				# 执行安装，并捕获结果
+				if openclaw plugins install "$plugin_full"; then
+					echo "✅ 下载成功，正在启用..."
+					openclaw plugins enable "$plugin_id"
+				else
+					echo "⚠️ 官方渠道下载失败，尝试备选方案..."
+					# 备选 npm 安装
+					if npm install -g "$plugin_full" --unsafe-perm; then
+						echo "✅ npm 安装成功，尝试启用..."
+						openclaw plugins enable "$plugin_id"
+					else
+						echo "❌ 严重错误：无法获取该插件。请检查 ID 是否正确或网络是否可用。"
+						# 关键：这里直接 return 或 continue，不走下面的 start_tmux，防止写死配置
+						break_end
+						continue
+					fi
+				fi
+			fi
+
+			echo "🔄 正在重启 OpenClaw 服务以加载新插件..."
+			start_tmux
+			break_end
+		done
+	}
+
+
+
+
+
 
 
 	install_skill() {
@@ -10061,7 +10161,7 @@ moltbot_menu() {
 
 			# 3. 执行安装命令
 			echo "正在安装技能：$skill_name ..."
-			openclaw skills install "$skill_name"
+			npx clawhub install "$skill_name"
 
 			# 获取上一条命令的退出状态
 			if [ $? -eq 0 ]; then
