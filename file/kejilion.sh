@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.3.9"
+sh_v="4.3.10"
 
 
 gl_hui='\e[37m'
@@ -9826,7 +9826,7 @@ moltbot_menu() {
 {
 	"id": "$model_id",
 	"name": "$provider_name / $model_id",
-	"input": ["text"],
+	"input": ["text", "image"],
 	"contextWindow": $context_window,
 	"maxTokens": $max_tokens,
 	"cost": {
