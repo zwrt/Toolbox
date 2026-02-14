@@ -10323,18 +10323,18 @@ EOF
 
 		token=$(
 			openclaw dashboard 2>/dev/null \
-			| sed -n 's/.*:18789\/?token=\([a-f0-9]\+\).*/\1/p' \
+			| sed -n 's/.*:18789\/#token=\([a-f0-9]\+\).*/\1/p' \
 			| head -n 1
 		)
 		echo
 		echo "本机地址："
-		echo "http://${local_ip}:18789/?token=${token}"
+		echo "http://${local_ip}:18789/#token=${token}"
 
 		domains=$(openclaw_find_webui_domain)
 		if [ -n "$domains" ]; then
 			echo "域名地址："
 			echo "$domains" | while read d; do
-				echo "https://${d}/?token=${token}"
+				echo "https://${d}/#token=${token}"
 			done
 		fi
 
@@ -10350,13 +10350,13 @@ EOF
 
 		token=$(
 			openclaw dashboard 2>/dev/null \
-			| sed -n 's/.*:18789\/?token=\([a-f0-9]\+\).*/\1/p' \
+			| sed -n 's/.*:18789\/#token=\([a-f0-9]\+\).*/\1/p' \
 			| head -n 1
 		)
 
 		clear
 		echo "访问地址:"
-		echo "https://${yuming}/?token=$token"
+		echo "https://${yuming}/#token=$token"
 		echo "先访问URL触发设备ID，然后回车下一步进行配对。"
 		read
 		echo -e "${gl_kjlan}正在加载设备列表……${gl_bai}"
