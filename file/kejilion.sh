@@ -9718,6 +9718,8 @@ moltbot_menu() {
 			dnf install -y cmake
 		fi
 
+		install npm pnpm
+		
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			pnpm config set registry https://registry.npmmirror.com
