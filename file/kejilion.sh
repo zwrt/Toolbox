@@ -10126,7 +10126,7 @@ EOF
 			echo "🔍 正在检查插件状态..."
 
 			# 2. 检查是否已经在 list 中且为 disabled (最常见的情况)
-			if echo "$plugin_list" | grep -qW "$plugin_id" && echo "$plugin_list" | grep "$plugin_id" | grep -q "disabled"; then
+			if echo "$plugin_list" | grep -qw "$plugin_id" && echo "$plugin_list" | grep "$plugin_id" | grep -q "disabled"; then
 				echo "💡 插件 [$plugin_id] 已预装，正在激活..."
 				openclaw plugins enable "$plugin_id" && echo "✅ 激活成功" || echo "❌ 激活失败"
 
