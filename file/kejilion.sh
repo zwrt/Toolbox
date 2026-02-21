@@ -3299,7 +3299,6 @@ send_stats "安装nginx环境"
 root_use
 clear
 echo -e "${gl_huang}nginx未安装，开始安装nginx环境...${gl_bai}"
-check_disk_space 1 /home
 install_dependency
 install_docker
 install_certbot
