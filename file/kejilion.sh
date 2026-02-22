@@ -9699,9 +9699,6 @@ moltbot_menu() {
 
 
 	start_gateway() {
-		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
-		source ~/.bashrc > /dev/null 2>&1
-		source ~/.profile > /dev/null 2>&1
 		openclaw gateway stop
 		openclaw gateway start
 		sleep 3
@@ -9716,15 +9713,23 @@ moltbot_menu() {
 			dnf groupinstall -y "Development Tools"
 			dnf install -y cmake
 		fi
-
-		install npm pnpm
 		
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
-			pnpm config set registry https://registry.npmmirror.com
-			npm config set registry https://registry.npmmirror.com
+			# 检查并设置 pnpm
+			if command -v pnpm &> /dev/null; then
+				pnpm config set registry https://registry.npmmirror.com
+			fi
+
+			# 检查并设置 npm
+			if command -v npm &> /dev/null; then
+				npm config set registry https://registry.npmmirror.com
+			fi
 		fi
 		curl -fsSL https://openclaw.ai/install.sh | bash
+		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
+		source ~/.bashrc > /dev/null 2>&1
+		source ~/.profile > /dev/null 2>&1
 		start_gateway
 		add_app_id
 		break_end
@@ -10266,7 +10271,9 @@ EOF
 		echo "更新 OpenClaw..."
 		send_stats "更新 OpenClaw..."
 		curl -fsSL https://openclaw.ai/install.sh | bash
-		openclaw gateway stop
+		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
+		source ~/.bashrc > /dev/null 2>&1
+		source ~/.profile > /dev/null 2>&1
 		start_gateway
 		add_app_id
 		echo "更新完成"
