@@ -9699,6 +9699,9 @@ moltbot_menu() {
 
 
 	start_gateway() {
+		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
+		source ~/.bashrc > /dev/null 2>&1
+		source ~/.profile > /dev/null 2>&1
 		openclaw gateway stop
 		openclaw gateway start
 		sleep 3
