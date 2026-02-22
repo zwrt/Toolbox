@@ -13,7 +13,7 @@ gl_kjlan='\033[96m'
 
 
 canshu="default"
-permission_granted="false"
+permission_granted="true"
 ENABLE_STATS="true"
 
 
@@ -9710,26 +9710,22 @@ moltbot_menu() {
 
 		if command -v dnf &>/dev/null; then
 			dnf update -y
-			dnf groupinstall -y "Development Tools"
+			dnf group install -y "Development Tools" "Development Libraries"
 			dnf install -y cmake
 		fi
-		
+
+		if command -v apt &>/dev/null; then
+			apt update -y
+			apt install build-essential python3 -y
+		fi
+
+		install node npm
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
-			# 检查并设置 pnpm
-			if command -v pnpm &> /dev/null; then
-				pnpm config set registry https://registry.npmmirror.com
-			fi
-
-			# 检查并设置 npm
-			if command -v npm &> /dev/null; then
-				npm config set registry https://registry.npmmirror.com
-			fi
+			npm config set registry https://registry.npmmirror.com
 		fi
-		curl -fsSL https://openclaw.ai/install.sh | bash
-		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
-		source ~/.bashrc > /dev/null 2>&1
-		source ~/.profile > /dev/null 2>&1
+		npm install -g openclaw@latest
+		openclaw onboard --install-daemon
 		start_gateway
 		add_app_id
 		break_end
@@ -10270,10 +10266,7 @@ EOF
 	update_moltbot() {
 		echo "更新 OpenClaw..."
 		send_stats "更新 OpenClaw..."
-		curl -fsSL https://openclaw.ai/install.sh | bash
-		ln -s /root/.local/bin/openclaw /usr/local/bin/openclaw > /dev/null 2>&1
-		source ~/.bashrc > /dev/null 2>&1
-		source ~/.profile > /dev/null 2>&1
+		npm install -g openclaw@latest
 		start_gateway
 		add_app_id
 		echo "更新完成"
