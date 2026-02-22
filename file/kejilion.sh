@@ -9711,15 +9711,22 @@ moltbot_menu() {
 		if command -v dnf &>/dev/null; then
 			dnf update -y
 			dnf group install -y "Development Tools" "Development Libraries"
-			dnf install -y cmake
+			dnf install -y cmake libatomic
 		fi
 
 		if command -v apt &>/dev/null; then
 			apt update -y
-			apt install build-essential python3 -y
+			apt install build-essential python3 libatomic1 -y
 		fi
 
-		install node npm
+
+		curl -o- ${gh_proxy}raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+
+		export NVM_DIR="$HOME/.nvm"
+		[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+		[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+		nvm install node
 		country=$(curl -s ipinfo.io/country)
 		if [[ "$country" == "CN" || "$country" == "HK" ]]; then
 			npm config set registry https://registry.npmmirror.com
