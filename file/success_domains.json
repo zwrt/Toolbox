@@ -1,62 +1,56 @@
 {
   "https://3fanduijie.xyz": {
     "node_count": 2,
-    "sub_url": "https://subs.3f66.net/api/v1/client/subscribe?token=6575c98e7a9a58c1b0deb4ca48dfc620",
-    "email": "u9ikbxbaek5y@qq.com",
+    "sub_url": "https://subs.3f66.net/api/v1/client/subscribe?token=bee487000ce1620186192afc8a26fa09",
+    "email": "bmhvj0118r84@qq.com",
     "expire_info": "1970-01-01 08:00:00+08:00"
-  },
-  "https://a.sdmone.pro": {
-    "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/LZiQtXkn0WIW6XjW?sub=3",
-    "email": "6aj5v09kf4bi@gmail.com",
-    "expire_info": "2026-02-26 20:43:48+08:00"
   },
   "http://www.sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/be7CZEJ0ipBeDJLY?sub=3",
-    "email": "oneiap5ppmkv@gmail.com",
-    "expire_info": "2026-02-26 20:43:19+08:00"
+    "sub_url": "https://c.sdm.lat/link/J7HtO7J9TdaUaJ5j?sub=3",
+    "email": "0tnxcsuw74bq@gmail.com",
+    "expire_info": "2026-02-26 22:50:27+08:00"
   },
-  "https://best.nxxbbf.com": {
-    "node_count": 9,
-    "sub_url": "https://bestti.whtjdasha.com/api/v1/client/subscribe?token=a88b7659b25d5ba5de5efb62eda1f9d5",
-    "email": "jjxomfpp76r7@outlook.com",
-    "expire_info": "2026-02-25 22:44:36+08:00"
+  "https://a.sdmone.pro": {
+    "node_count": 1,
+    "sub_url": "https://c.sdm.lat/link/zKmXxpspIvioUBZP?sub=3",
+    "email": "5w4ci1dnny5b@outlook.com",
+    "expire_info": "2026-02-26 22:50:53+08:00"
+  },
+  "https://mgnet.vip": {
+    "node_count": 11,
+    "sub_url": "https://aa.mgnet.sbs/link/kz90xEjBTYbyLRWN?sub=3",
+    "email": "ee1xkvuqlc8c@qq.com",
+    "expire_info": "2026-02-27 23:53:52+08:00"
   },
   "https://multiserver.multiserveradelshoop.com": {
     "node_count": 2,
-    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=6291a1e254eeabe3e61979a0910d3857",
-    "email": "nh4mvyqw66e6@outlook.com",
+    "sub_url": "https://multiserver.multiserveradelshoop.com/api/v1/client/subscribe?token=8699633231d89a567108d36fbfb266a6",
+    "email": "zm13cllmurzx@gmail.com",
     "expire_info": "永不过期"
   },
   "https://sdmone.pro": {
     "node_count": 1,
-    "sub_url": "https://c.sdm.lat/link/VQsa6Qw9ZcMT1lEM?sub=3",
-    "email": "r5opzq1laf3n@qq.com",
-    "expire_info": "2026-02-26 20:51:14+08:00"
-  },
-  "https://mgnet.vip": {
-    "node_count": 11,
-    "sub_url": "https://aa.mgnet.sbs/link/HsOoDErKOJRG1QqL?sub=3",
-    "email": "bippryg4r9r6@outlook.com",
-    "expire_info": "2026-02-27 21:49:51+08:00"
+    "sub_url": "https://c.sdm.lat/link/GCKyyDyHzybh3YDF?sub=3",
+    "email": "mjjr0097swu8@gmail.com",
+    "expire_info": "2026-02-26 22:54:28+08:00"
   },
   "https://tizi.bulehu.com": {
     "node_count": 1,
-    "sub_url": "https://tizi.bulehu.com/api/v1/client/subscribe?token=11e933a9a14ec41693a959ec15c5dd46",
-    "email": "y3r4z7kvoxzs@gmail.com",
-    "expire_info": "2026-02-26 20:52:20+08:00"
+    "sub_url": "https://tizi.bulehu.com/api/v1/client/subscribe?token=a8886a93d7249c072f706e4c557f0985",
+    "email": "niaysu2t6y7c@gmail.com",
+    "expire_info": "2026-02-26 22:55:02+08:00"
   },
   "https://xbd.iftballs.com": {
     "node_count": 3,
-    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=85d4fbf9f9e6946caa92788eb551665c",
-    "email": "h77odt1immi0@gmail.com",
+    "sub_url": "https://xbd.iftballs.com/api/v1/client/subscribe?token=e16e1894a6c2b280ccc3c8c7becb2cca",
+    "email": "opkwlsgut1bk@gmail.com",
     "expire_info": "永不过期"
   },
   "https://yywhale.com": {
     "node_count": 5,
-    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=91cc95b8f6c2b5571f88a1bee544f6f1",
-    "email": "xmw4rhxgn41z@gmail.com",
-    "expire_info": "2026-02-25 22:01:41+08:00"
+    "sub_url": "https://www.yywhale.com/api/v1/client/subscribe?token=4fbbd18b3b7cee6898c2f68e7cbda76e",
+    "email": "66otyc7g2vxj@outlook.com",
+    "expire_info": "2026-02-26 00:01:04+08:00"
   }
 }
