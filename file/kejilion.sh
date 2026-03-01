@@ -9804,36 +9804,29 @@ moltbot_menu() {
 		while read -r model_id; do
 			[[ $first == false ]] && models_array+=","
 			first=false
-			
-			# 根据模型名称推断上下文窗口（OpenRouter 2026-03 校准）
-			local context_window=131072
-			local max_tokens=8192
+
+			# context 和 max_tokens 全拉满，不怕大
+			local context_window=1048576
+			local max_tokens=128000
+
+			# 只有价格需要分级
 			local input_cost=0.15
 			local output_cost=0.60
-			
+
 			case "$model_id" in
-				*preview*|*thinking*|*opus*|*pro*)
-					context_window=1048576  # 1M
-					max_tokens=128000
+				*opus*|*pro*|*preview*|*thinking*|*sonnet*)
 					input_cost=2.00
 					output_cost=12.00
 					;;
 				*gpt-5*|*codex*)
-					context_window=400000   # 400K
-					max_tokens=128000
 					input_cost=1.25
 					output_cost=10.00
 					;;
-				*flash*|*lite*|*haiku*)
-					context_window=1048576  # 1M
-					max_tokens=65535
+				*flash*|*lite*|*haiku*|*mini*|*nano*)
 					input_cost=0.10
 					output_cost=0.40
 					;;
 			esac
-
-
-
 
 			models_array+=$(cat <<EOF
 {
