@@ -9804,33 +9804,36 @@ moltbot_menu() {
 		while read -r model_id; do
 			[[ $first == false ]] && models_array+=","
 			first=false
-
-			# 根据模型名称推断上下文窗口
+			
+			# 根据模型名称推断上下文窗口（OpenRouter 2026-03 校准）
 			local context_window=131072
 			local max_tokens=8192
-			local input_cost=0.14
-			local output_cost=0.28
-
+			local input_cost=0.15
+			local output_cost=0.60
+			
 			case "$model_id" in
 				*preview*|*thinking*|*opus*|*pro*)
 					context_window=1048576  # 1M
-					max_tokens=16384
-					input_cost=0.30
-					output_cost=0.60
+					max_tokens=128000
+					input_cost=2.00
+					output_cost=12.00
 					;;
 				*gpt-5*|*codex*)
-					context_window=131072   # 128K
-					max_tokens=8192
-					input_cost=0.20
-					output_cost=0.40
+					context_window=400000   # 400K
+					max_tokens=128000
+					input_cost=1.25
+					output_cost=10.00
 					;;
 				*flash*|*lite*|*haiku*)
-					context_window=131072
-					max_tokens=8192
-					input_cost=0.07
-					output_cost=0.14
+					context_window=1048576  # 1M
+					max_tokens=65535
+					input_cost=0.10
+					output_cost=0.40
 					;;
 			esac
+
+
+
 
 			models_array+=$(cat <<EOF
 {
@@ -10274,6 +10277,7 @@ EOF
 		send_stats "更新 OpenClaw..."
 		install_node_and_tools
 		npm install -g openclaw@latest
+		crontab -l 2>/dev/null | grep -v "s gateway" | crontab -
 		start_gateway
 		hash -r
 		add_app_id
