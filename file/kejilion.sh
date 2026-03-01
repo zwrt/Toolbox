@@ -6167,8 +6167,9 @@ restore_defaults() {
 
 	local CONF="/etc/sysctl.d/99-kejilion-optimize.conf"
 
-	# 删除优化配置文件
+	# 删除优化配置文件（含外链自动调优配置）
 	rm -f "$CONF"
+	rm -f /etc/sysctl.d/99-network-optimize.conf
 
 	# 清理 sysctl.conf 里可能残留的 bbr 配置
 	sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf 2>/dev/null
@@ -6198,6 +6199,7 @@ Kernel_optimize() {
 	  clear
 	  send_stats "Linux内核调优管理"
 	  local current_mode=$(grep "^# 模式:" /etc/sysctl.d/99-kejilion-optimize.conf 2>/dev/null | sed 's/# 模式: //' | awk -F'|' '{print $1}' | xargs)
+	  [ -z "$current_mode" ] && [ -f /etc/sysctl.d/99-network-optimize.conf ] && current_mode="自动调优模式"
 	  echo "Linux系统内核参数优化"
 	  if [ -n "$current_mode" ]; then
 		  echo -e "当前模式: ${gl_lv}${current_mode}${gl_bai}"
@@ -6274,6 +6276,10 @@ Kernel_optimize() {
 	  break_end
 	done
 }
+
+
+
+
 
 
 
