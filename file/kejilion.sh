@@ -5848,7 +5848,11 @@ clamav() {
 }
 
 
-
+# ============================================================================
+# Linux 内核调优模块（重构版）
+# 统一核心函数 + 场景差异化参数 + 持久化到配置文件 + 硬件自适应
+# 替换原 optimize_high_performance / optimize_balanced / optimize_web_server / restore_defaults
+# ============================================================================
 
 # 获取内存大小（MB）
 _get_mem_mb() {
@@ -6100,9 +6104,20 @@ $STREAM_EXTRA
 $GAME_EXTRA
 SYSCTL
 
-	# ── 应用配置 ──
+	# ── 应用配置（逐行，跳过不支持的参数） ──
 	echo -e "${gl_lv}应用优化参数...${gl_bai}"
-	sysctl -p "$CONF" 2>&1 | grep -v "^$\|^net\.\|^vm\.\|^fs\.\|^kernel\." || true
+	local applied=0 skipped=0
+	while IFS= read -r line; do
+		# 跳过注释和空行
+		[[ "$line" =~ ^[[:space:]]*# ]] && continue
+		[[ -z "${line// /}" ]] && continue
+		if sysctl -w "$line" >/dev/null 2>&1; then
+			applied=$((applied + 1))
+		else
+			skipped=$((skipped + 1))
+		fi
+	done < "$CONF"
+	echo -e "${gl_lv}已应用 ${applied} 项参数${skipped:+，跳过 ${skipped} 项不支持的参数}${gl_bai}"
 
 	# ── 透明大页面 ──
 	if [ -f /sys/kernel/mm/transparent_hugepage/enabled ]; then
@@ -6159,7 +6174,7 @@ restore_defaults() {
 	sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf 2>/dev/null
 
 	# 重新加载系统默认配置
-	sysctl --system 2>&1 | tail -1
+	sysctl --system 2>/dev/null | tail -1
 
 	# 还原透明大页面
 	[ -f /sys/kernel/mm/transparent_hugepage/enabled ] && \
@@ -6182,7 +6197,13 @@ Kernel_optimize() {
 	while true; do
 	  clear
 	  send_stats "Linux内核调优管理"
+	  local current_mode=$(grep "^# 模式:" /etc/sysctl.d/99-kejilion-optimize.conf 2>/dev/null | sed 's/# 模式: //' | awk -F'|' '{print $1}' | xargs)
 	  echo "Linux系统内核参数优化"
+	  if [ -n "$current_mode" ]; then
+		  echo -e "当前模式: ${gl_lv}${current_mode}${gl_bai}"
+	  else
+		  echo -e "当前模式: ${gl_hui}未优化${gl_bai}"
+	  fi
 	  echo "视频介绍: https://www.bilibili.com/video/BV1Kb421J7yg?t=0.1"
 	  echo "------------------------------------------------"
 	  echo "提供多种系统参数调优模式，用户可以根据自身使用场景进行选择切换。"
@@ -6253,11 +6274,6 @@ Kernel_optimize() {
 	  break_end
 	done
 }
-
-
-
-
-
 
 
 
