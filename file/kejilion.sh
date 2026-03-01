@@ -4699,9 +4699,17 @@ linux_clean() {
 
 bbr_on() {
 
-sed -i '/net.ipv4.tcp_congestion_control=/d' /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-sysctl -p
+# 统一写入到 sysctl.d 以防与内核调优模块打架
+local CONF="/etc/sysctl.d/99-kejilion-bbr.conf"
+mkdir -p /etc/sysctl.d
+echo "net.core.default_qdisc=fq" > "$CONF"
+echo "net.ipv4.tcp_congestion_control=bbr" >> "$CONF"
+
+# 清理可能导致冲突的旧版 sysctl.conf 残留
+sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf 2>/dev/null
+sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf 2>/dev/null
+
+sysctl -p "$CONF" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1
 
 }
 
