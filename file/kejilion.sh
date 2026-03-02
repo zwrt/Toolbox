@@ -9883,7 +9883,7 @@ moltbot_menu() {
 		echo "4.  状态日志查看"
 		echo "5.  换模型"
 		echo "6.  加新模型API"
-		echo "7.  TG输入连接码"
+		echo "7.  机器人连接对接"
 		echo "8.  安装插件（如：飞书）"
 		echo "9.  安装技能（skills）"
 		echo "10. 编辑主配置文件"
@@ -10448,22 +10448,50 @@ EOF
 
 	change_tg_bot_code() {
 		send_stats "机器人对接"
-		read -e -p "请输入TG机器人收到的连接码 (例如 Pairing code: NYA99R2F)（输入 0 退出）： " code
+		while true; do
+			clear
+			echo "========================================"
+			echo "            机器人连接对接            "
+			echo "========================================"
+			echo "1. Telegram 机器人对接"
+			echo "2. 飞书 (Lark) 机器人对接"
+			echo "3. WhatsApp 机器人对接"
+			echo "----------------------------------------"
+			echo "0. 返回上一级选单"
+			echo "----------------------------------------"
+			read -e -p "请输入你的选择: " bot_choice
 
-		# 检查是否输入 0 以退出
-		if [ "$code" = "0" ]; then
-			echo "操作已取消。"
-			return 0  # 正常退出函数
-		fi
-
-		# 验证输入是否为空
-		if [ -z "$code" ]; then
-			echo "错误：连接码不能为空。请重试。"
-			return 1
-		fi
-
-		openclaw pairing approve telegram $code
-		break_end
+			case $bot_choice in
+				1)
+					read -e -p "请输入TG机器人收到的连接码 (例如 NYA99R2F)（输入 0 退出）： " code
+					if [ "$code" = "0" ]; then continue; fi
+					if [ -z "$code" ]; then echo "错误：连接码不能为空。"; sleep 1; continue; fi
+					openclaw pairing approve telegram "$code"
+					break_end
+					;;
+				2)
+					read -e -p "请输入飞书机器人收到的连接码 (例如 NYA99R2F)（输入 0 退出）： " code
+					if [ "$code" = "0" ]; then continue; fi
+					if [ -z "$code" ]; then echo "错误：连接码不能为空。"; sleep 1; continue; fi
+					openclaw pairing approve feishu "$code"
+					break_end
+					;;
+				3)
+					read -e -p "请输入WhatsApp收到的连接码 (例如 NYA99R2F)（输入 0 退出）： " code
+					if [ "$code" = "0" ]; then continue; fi
+					if [ -z "$code" ]; then echo "错误：连接码不能为空。"; sleep 1; continue; fi
+					openclaw pairing approve whatsapp "$code"
+					break_end
+					;;
+				0)
+					return 0
+					;;
+				*)
+					echo "无效的选择，请重试。"
+					sleep 1
+					;;
+			esac
+		done
 	}
 
 
