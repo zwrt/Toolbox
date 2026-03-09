@@ -11391,6 +11391,222 @@ PY
 
 
 
+	openclaw_channel_status_summary() {
+		echo "当前消息渠道状态"
+
+		python3 - <<'__OC_LOCAL_STATUS__'
+import glob
+import json
+import os
+import time
+from pathlib import Path
+
+config_path = Path.home() / '.openclaw' / 'openclaw.json'
+
+labels = {
+    'telegram': 'Telegram',
+    'feishu': '飞书(Lark)',
+    'whatsapp': 'WhatsApp',
+    'discord': 'Discord',
+    'slack': 'Slack',
+    'qqbot': 'QQ Bot',
+}
+order = ['telegram', 'feishu', 'whatsapp', 'discord', 'slack', 'qqbot']
+
+
+def has_secret(v):
+    if isinstance(v, str):
+        return bool(v.strip())
+    if isinstance(v, dict):
+        # SecretRef / SecretInput（仅做本地是否已填写判断，不解密）
+        return bool(v.get('id') or v.get('value') or v.get('source') or v.get('provider'))
+    return False
+
+
+def load_cfg(path: Path):
+    if not path.exists():
+        return None, '配置文件不存在'
+    try:
+        with path.open('r', encoding='utf-8') as f:
+            return json.load(f), None
+    except Exception as e:
+        return None, f'读取失败: {e}'
+
+
+def plugin_enabled(cfg, cid: str):
+    entries = ((cfg or {}).get('plugins') or {}).get('entries') or {}
+    ent = entries.get(cid)
+    if isinstance(ent, dict):
+        return ent.get('enabled') is not False
+    return False
+
+
+def channel_enabled(cfg, cid: str):
+    ch = ((cfg or {}).get('channels') or {}).get(cid)
+    if isinstance(ch, dict):
+        return ch.get('enabled') is not False
+    return False
+
+
+def iter_accounts(section: dict):
+    out = []
+    if not isinstance(section, dict):
+        return out
+    # 默认账户（顶层）
+    out.append(section)
+    accounts = section.get('accounts')
+    if isinstance(accounts, dict):
+        for acc in accounts.values():
+            if isinstance(acc, dict):
+                out.append(acc)
+    return out
+
+
+def configured_telegram(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('telegram') or {}
+    for a in iter_accounts(sec):
+        if has_secret(a.get('botToken')) or has_secret(a.get('tokenFile')):
+            return True
+    return False
+
+
+def connected_telegram():
+    for fp in glob.glob(os.path.expanduser('~/.openclaw/telegram/update-offset-*.json')):
+        try:
+            d = json.load(open(fp, 'r', encoding='utf-8'))
+            if isinstance(d.get('lastUpdateId'), int):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def configured_feishu(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('feishu') or {}
+    for a in iter_accounts(sec):
+        if has_secret(a.get('appId')) and has_secret(a.get('appSecret')):
+            return True
+    return False
+
+
+def configured_discord(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('discord') or {}
+    for a in iter_accounts(sec):
+        if has_secret(a.get('token')):
+            return True
+    return False
+
+
+def slack_account_configured(a: dict):
+    mode = (a.get('mode') or 'socket').strip().lower() if isinstance(a.get('mode'), str) else 'socket'
+    if not has_secret(a.get('botToken')):
+        return False
+    if mode == 'http':
+        return has_secret(a.get('signingSecret'))
+    return has_secret(a.get('appToken'))
+
+
+def configured_slack(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('slack') or {}
+    for a in iter_accounts(sec):
+        if slack_account_configured(a):
+            return True
+    return False
+
+
+def configured_whatsapp(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('whatsapp') or {}
+    for a in iter_accounts(sec):
+        auth_dir = a.get('authDir')
+        if isinstance(auth_dir, str) and auth_dir.strip():
+            return True
+    return False
+
+
+def connected_whatsapp(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('whatsapp') or {}
+    for a in iter_accounts(sec):
+        auth_dir = a.get('authDir')
+        if not (isinstance(auth_dir, str) and auth_dir.strip()):
+            continue
+        p = Path(os.path.expanduser(auth_dir))
+        if p.is_file():
+            return True
+        if p.is_dir():
+            # 常见本地认证文件：creds.json；退化判断：目录非空
+            if (p / 'creds.json').exists():
+                return True
+            try:
+                if any(p.iterdir()):
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def configured_qqbot(cfg):
+    sec = ((cfg or {}).get('channels') or {}).get('qqbot') or {}
+    for a in iter_accounts(sec):
+        if has_secret(a.get('appId')) and has_secret(a.get('clientSecret')):
+            return True
+    return False
+
+
+def connected_qqbot():
+    now = int(time.time() * 1000)
+    # qqbot session-store 默认 5 分钟有效，这里放宽到 10 分钟作为“近期连接证据”
+    for fp in glob.glob(os.path.expanduser('~/.openclaw/qqbot/sessions/session-*.json')):
+        try:
+            d = json.load(open(fp, 'r', encoding='utf-8'))
+            if not d.get('sessionId'):
+                continue
+            if d.get('lastSeq') is None:
+                continue
+            saved_at = d.get('savedAt')
+            if isinstance(saved_at, (int, float)) and now - int(saved_at) <= 10 * 60 * 1000:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+cfg, err = load_cfg(config_path)
+if cfg is None:
+    print(f'  - OpenClaw: 异常 ({err})')
+    raise SystemExit(0)
+
+checks = {
+    'telegram': (configured_telegram, lambda _cfg: connected_telegram()),
+    'feishu': (configured_feishu, lambda _cfg: False),
+    'whatsapp': (configured_whatsapp, connected_whatsapp),
+    'discord': (configured_discord, lambda _cfg: False),
+    'slack': (configured_slack, lambda _cfg: False),
+    'qqbot': (configured_qqbot, lambda _cfg: connected_qqbot()),
+}
+
+for cid in order:
+    enabled = channel_enabled(cfg, cid) or plugin_enabled(cfg, cid)
+    configured_fn, connected_fn = checks[cid]
+    try:
+        configured = bool(configured_fn(cfg))
+        connected = bool(connected_fn(cfg)) if configured else False
+        if not enabled:
+            state = '未启用'
+        elif not configured:
+            state = '未配置'
+        elif connected:
+            state = '已连接'
+        else:
+            state = '已配置'
+    except Exception:
+        state = '异常'
+
+    state_display = f"[32m{state}[0m" if state == '已配置' else state
+    print(f"  - {labels[cid]}: {state_display}")
+__OC_LOCAL_STATUS__
+	}
+
+
 	change_tg_bot_code() {
 		send_stats "机器人对接"
 		while true; do
@@ -11398,6 +11614,8 @@ PY
 			echo "========================================"
 			echo "            机器人连接对接            "
 			echo "========================================"
+			openclaw_channel_status_summary
+			echo "----------------------------------------"
 			echo "1. Telegram 机器人对接"
 			echo "2. 飞书 (Lark) 机器人对接"
 			echo "3. WhatsApp 机器人对接"
