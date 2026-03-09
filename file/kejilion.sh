@@ -9956,7 +9956,7 @@ moltbot_menu() {
 		echo "--------------------"
 		echo "4.  状态日志查看"
 		echo "5.  换模型"
-		echo "6.  加新模型API"
+		echo "6.  API管理"
 		echo "7.  机器人连接对接"
 		echo "8.  安装插件（如：飞书）"
 		echo "9.  安装技能（skills）"
@@ -10035,14 +10035,42 @@ PY
 
 		install jq curl >/dev/null 2>&1
 
-		python3 - "$config_file" <<'PY'
+		python3 - "$config_file" "$ENABLE_STATS" "$sh_v" <<'PY'
 import copy
 import json
+import os
+import platform
 import sys
 import time
 import urllib.request
+from datetime import datetime, timezone
 
 path = sys.argv[1]
+stats_enabled = (sys.argv[2].lower() == "true") if len(sys.argv) > 2 else True
+script_version = sys.argv[3] if len(sys.argv) > 3 else ""
+
+def send_stat(action):
+    if not stats_enabled:
+        return
+    payload = {
+        "action": action,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "country": "",
+        "os_info": platform.platform(),
+        "cpu_arch": platform.machine(),
+        "version": script_version,
+    }
+    try:
+        req = urllib.request.Request(
+            "https://api.kejilion.pro/api/log",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            pass
+    except Exception:
+        pass
 
 with open(path, 'r', encoding='utf-8') as f:
     obj = json.load(f)
@@ -10226,11 +10254,14 @@ for name, provider in list(providers.items()):
     data, err, attempts = fetch_remote_models_with_retry(name, base_url, api_key, retries=3)
     if err is not None:
         summary.append(f'⚠️ {name}: /models 探测失败，已重试 {attempts} 次 ({type(err).__name__}: {err})')
+        send_stat('OpenClaw API确认介入')
         if prompt_delete_provider(name):
             deleted = delete_provider_and_refs(name)
             if deleted:
+                send_stat('OpenClaw API删失败Provider-确认')
                 summary.append(f'✅ {name}: 用户已确认删除该 provider 及全部相关模型引用')
         else:
+            send_stat('OpenClaw API删失败Provider-拒绝')
             summary.append(f'ℹ️ {name}: 用户未确认删除，保留现有 provider 配置')
         continue
 
@@ -10520,7 +10551,7 @@ EOF
 	}
 
 	add-openclaw-provider-interactive() {
-		send_stats "添加API"
+		send_stats "OpenClaw API添加"
 		echo "=== 交互式添加 OpenClaw Provider (全量模型) ==="
 
 		# 1. Provider 名称
@@ -10616,6 +10647,337 @@ EOF
 		break_end
 	}
 
+
+	openclaw_api_manage_list() {
+		local config_file="${HOME}/.openclaw/openclaw.json"
+		send_stats "OpenClaw API列表"
+
+		python3 - "$config_file" "${gl_huang}" "${gl_lv}" "${gl_hong}" "${gl_bai}" "${gl_kjlan}" <<'PY'
+import json
+import sys
+import time
+import unicodedata
+import urllib.request
+
+path = sys.argv[1]
+C_YELLOW = sys.argv[2] if len(sys.argv) > 2 else ''
+C_GREEN = sys.argv[3] if len(sys.argv) > 3 else ''
+C_RED = sys.argv[4] if len(sys.argv) > 4 else ''
+C_WHITE = sys.argv[5] if len(sys.argv) > 5 else ''
+C_BLUE = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else C_WHITE
+C_RESET = C_WHITE if C_WHITE else '\033[0m'
+
+
+def colorize(text, color):
+    return f'{color}{text}{C_RESET}' if color else text
+
+
+def char_width(ch):
+    return 2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1
+
+
+def text_width(text):
+    return sum(char_width(ch) for ch in str(text))
+
+
+def trim_to_width(text, width):
+    s = str(text)
+    if text_width(s) <= width:
+        return s
+    reserve = 3
+    out = []
+    w = 0
+    for ch in s:
+        cw = char_width(ch)
+        if w + cw > max(width - reserve, 0):
+            break
+        out.append(ch)
+        w += cw
+    return ''.join(out) + '...'
+
+
+def pad_text(text, width):
+    s = trim_to_width(text, width)
+    return s + ' ' * max(width - text_width(s), 0)
+
+
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        obj = json.load(f)
+except FileNotFoundError:
+    print('ℹ️ 未找到 openclaw.json，请先完成安装/初始化。')
+    raise SystemExit(0)
+except Exception as e:
+    print(f'❌ 读取配置失败: {type(e).__name__}: {e}')
+    raise SystemExit(0)
+
+providers = ((obj.get('models') or {}).get('providers') or {})
+if not isinstance(providers, dict) or not providers:
+    print('ℹ️ 当前未配置任何 API provider。')
+    raise SystemExit(0)
+
+SUPPORTED_APIS = {'openai-completions', 'openai-responses', 'openai-chat-completions'}
+
+
+def ping_models(base_url, api_key):
+    req = urllib.request.Request(
+        base_url.rstrip('/') + '/models',
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'User-Agent': 'OpenClaw-API-Manage/1.0',
+        },
+    )
+    start = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=4) as resp:
+        resp.read(2048)
+    return int((time.perf_counter() - start) * 1000)
+
+
+def format_latency(latency):
+    if latency == '不可用':
+        return '不可用'
+    if latency == '未检测':
+        return '未检测'
+    if isinstance(latency, int):
+        return f'{latency}ms'
+    return str(latency)
+
+
+IDX_W = 4
+NAME_W = 18
+URL_W = 44
+MODEL_W = 8
+LAT_W = 12
+
+print('--- 已配置 API 列表 ---')
+header = (
+    f"{pad_text('序号', IDX_W)} "
+    f"{pad_text('名称', NAME_W)} "
+    f"{pad_text('API地址', URL_W)} "
+    f"{pad_text('模型数量', MODEL_W)} "
+    f"{pad_text('延迟/状态', LAT_W)}"
+)
+print(header)
+print('-' * text_width(header))
+
+for idx, name in enumerate(sorted(providers.keys()), start=1):
+    provider = providers.get(name)
+    if not isinstance(provider, dict):
+        base_url = '-'
+        model_count = 0
+        latency_raw = '不可用'
+    else:
+        base_url = provider.get('baseUrl') or provider.get('url') or provider.get('endpoint') or '-'
+        models = provider.get('models') if isinstance(provider.get('models'), list) else []
+        model_count = sum(1 for m in models if isinstance(m, dict) and m.get('id'))
+        api = provider.get('api', '')
+        api_key = provider.get('apiKey')
+
+        latency_raw = '未检测'
+        if api in SUPPORTED_APIS:
+            if isinstance(base_url, str) and base_url != '-' and isinstance(api_key, str) and api_key:
+                try:
+                    latency_raw = ping_models(base_url, api_key)
+                except Exception:
+                    latency_raw = '不可用'
+            else:
+                latency_raw = '不可用'
+
+    model_txt = pad_text(str(model_count), MODEL_W)
+    latency_txt = pad_text(format_latency(latency_raw), LAT_W)
+
+    row = (
+        f"{pad_text(str(idx) + '.', IDX_W)} "
+        f"{pad_text(name, NAME_W)} "
+        f"{pad_text(base_url, URL_W)} "
+        f"{model_txt} "
+        f"{latency_txt}"
+    )
+    print(row)
+PY
+	}
+
+	delete-openclaw-provider-interactive() {
+		local config_file="${HOME}/.openclaw/openclaw.json"
+		send_stats "OpenClaw API删除入口"
+
+		if [ ! -f "$config_file" ]; then
+			echo "❌ 未找到配置文件: $config_file"
+			break_end
+			return 1
+		fi
+
+		read -erp "请输入要删除的 API 名称(provider): " provider_name
+		if [ -z "$provider_name" ]; then
+			send_stats "OpenClaw API删除取消"
+			echo "❌ provider 名称不能为空"
+			break_end
+			return 1
+		fi
+
+		python3 - "$config_file" "$provider_name" <<'PY'
+import copy
+import json
+import sys
+
+path = sys.argv[1]
+name = sys.argv[2]
+
+with open(path, 'r', encoding='utf-8') as f:
+    obj = json.load(f)
+
+work = copy.deepcopy(obj)
+models_cfg = work.setdefault('models', {})
+providers = models_cfg.get('providers', {})
+if not isinstance(providers, dict) or name not in providers:
+    print(f'❌ 未找到 provider: {name}')
+    raise SystemExit(2)
+
+agents = work.setdefault('agents', {})
+defaults = agents.setdefault('defaults', {})
+defaults_models_raw = defaults.get('models')
+if isinstance(defaults_models_raw, dict):
+    defaults_models = defaults_models_raw
+elif isinstance(defaults_models_raw, list):
+    defaults_models = {str(x): {} for x in defaults_models_raw if isinstance(x, str)}
+else:
+    defaults_models = {}
+defaults['models'] = defaults_models
+
+
+def model_ref(provider_name, model_id):
+    return f"{provider_name}/{model_id}"
+
+
+def ref_provider(ref):
+    if not isinstance(ref, str) or '/' not in ref:
+        return None
+    return ref.split('/', 1)[0]
+
+
+def get_primary_ref(defaults_obj):
+    model_obj = defaults_obj.get('model')
+    if isinstance(model_obj, str):
+        return model_obj
+    if isinstance(model_obj, dict):
+        primary = model_obj.get('primary')
+        if isinstance(primary, str):
+            return primary
+    return None
+
+
+def set_primary_ref(defaults_obj, new_ref):
+    model_obj = defaults_obj.get('model')
+    if isinstance(model_obj, str):
+        defaults_obj['model'] = new_ref
+    elif isinstance(model_obj, dict):
+        model_obj['primary'] = new_ref
+    else:
+        defaults_obj['model'] = {'primary': new_ref}
+
+
+def collect_available_refs(exclude_provider=None):
+    refs = []
+    if not isinstance(providers, dict):
+        return refs
+    for pname, p in providers.items():
+        if exclude_provider and pname == exclude_provider:
+            continue
+        if not isinstance(p, dict):
+            continue
+        for m in p.get('models', []) or []:
+            if isinstance(m, dict) and m.get('id'):
+                refs.append(model_ref(pname, str(m['id'])))
+    return refs
+
+
+replacement_candidates = collect_available_refs(exclude_provider=name)
+replacement = replacement_candidates[0] if replacement_candidates else None
+
+primary_ref = get_primary_ref(defaults)
+if ref_provider(primary_ref) == name:
+    if not replacement:
+        print('❌ 删除中止：默认主模型指向该 provider，且无可用替代模型')
+        raise SystemExit(3)
+    set_primary_ref(defaults, replacement)
+    print(f'🔁 默认主模型切换: {primary_ref} -> {replacement}')
+
+for fk in ('modelFallback', 'imageModelFallback'):
+    val = defaults.get(fk)
+    if ref_provider(val) == name:
+        if not replacement:
+            print(f'❌ 删除中止：{fk} 指向该 provider，且无可用替代模型')
+            raise SystemExit(3)
+        defaults[fk] = replacement
+        print(f'🔁 {fk} 切换: {val} -> {replacement}')
+
+removed_refs = [r for r in list(defaults_models.keys()) if r.startswith(name + '/')]
+for r in removed_refs:
+    defaults_models.pop(r, None)
+
+providers.pop(name, None)
+
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(work, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+
+print(f'🗑️ 已删除 provider: {name}')
+print(f'🧹 已清理 defaults.models 中 {len(removed_refs)} 个关联模型引用')
+PY
+		local rc=$?
+		case "$rc" in
+			0)
+				send_stats "OpenClaw API删除确认"
+				echo "✅ 删除完成"
+				start_gateway
+				;;
+			2)
+				echo "❌ 删除失败：provider 不存在"
+				;;
+			3)
+				send_stats "OpenClaw API删除取消"
+				echo "❌ 删除失败：无可用替代模型，已保持原配置"
+				;;
+			*)
+				echo "❌ 删除失败：请检查配置文件结构或日志输出"
+				;;
+		esac
+
+		break_end
+	}
+
+	openclaw_api_manage_menu() {
+		send_stats "OpenClaw API入口"
+		while true; do
+			clear
+			echo "======================================="
+			echo "OpenClaw API 管理"
+			echo "======================================="
+			openclaw_api_manage_list
+			echo "---------------------------------------"
+			echo "1. 添加API"
+			echo "2. 删除API"
+			echo "0. 返回上一级"
+			echo "---------------------------------------"
+			read -erp "请输入你的选择: " api_choice
+
+			case "$api_choice" in
+				1)
+					add-openclaw-provider-interactive
+					;;
+				2)
+					delete-openclaw-provider-interactive
+					;;
+				0)
+					return 0
+					;;
+				*)
+					echo "无效的选择，请重试。"
+					sleep 1
+					;;
+			esac
+		done
+	}
 
 
 	change_model() {
@@ -11061,7 +11423,7 @@ EOF
 			3) stop_bot ;;
 			4) view_logs ;;
 			5) change_model ;;
-			6) add-openclaw-provider-interactive ;;
+			6) openclaw_api_manage_menu ;;
 			7) change_tg_bot_code ;;
 			8) install_plugin ;;
 			9) install_skill ;;
@@ -11072,6 +11434,7 @@ EOF
 				;;
 			12) send_stats "健康检测与修复"
 				openclaw doctor --fix
+				send_stats "OpenClaw API同步触发"
 				if sync_openclaw_api_models; then
 					start_gateway
 				else
