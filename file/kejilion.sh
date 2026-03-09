@@ -11601,8 +11601,7 @@ for cid in order:
     except Exception:
         state = '异常'
 
-    state_display = f"[32m{state}[0m" if state == '已配置' else state
-    print(f"  - {labels[cid]}: {state_display}")
+    print(f"  - {labels[cid]}: {state}")
 __OC_LOCAL_STATUS__
 	}
 
