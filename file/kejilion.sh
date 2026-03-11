@@ -10046,8 +10046,8 @@ moltbot_menu() {
 		echo "5.  换模型"
 		echo "6.  API管理"
 		echo "7.  机器人连接对接"
-		echo "8.  安装插件（如：飞书）"
-		echo "9.  安装技能（skills）"
+		echo "8.  插件管理（安装/删除）"
+		echo "9.  技能管理（安装/删除）"
 		echo "10. 编辑主配置文件"
 		echo "11. 配置向导"
 		echo "12. 健康检测与修复"
@@ -11393,15 +11393,86 @@ PYTHON_EOF
 			return 1
 		}
 
+		sync_openclaw_plugin_denylist() {
+			local plugin_id="$1"
+			[ -z "$plugin_id" ] && return 1
+
+			local home_config="${HOME}/.openclaw/openclaw.json"
+			local root_config="/root/.openclaw/openclaw.json"
+			local config_file="$home_config"
+			if [ ! -f "$home_config" ] && [ -f "$root_config" ]; then
+				config_file="$root_config"
+			fi
+
+			mkdir -p "$(dirname "$config_file")"
+			if [ ! -s "$config_file" ]; then
+				echo '{}' > "$config_file"
+			fi
+
+			if command -v jq >/dev/null 2>&1; then
+				local tmp_json
+				tmp_json=$(mktemp)
+				if jq --arg pid "$plugin_id" '
+					.plugins = (if (.plugins | type) == "object" then .plugins else {} end)
+					| .plugins.allow = (if (.plugins.allow | type) == "array" then .plugins.allow else [] end)
+					| .plugins.allow = (.plugins.allow | map(select(. != $pid)))
+				' "$config_file" > "$tmp_json" 2>/dev/null && mv "$tmp_json" "$config_file"; then
+					echo "✅ 已从 plugins.allow 移除: $plugin_id"
+					return 0
+				fi
+				rm -f "$tmp_json"
+			fi
+
+			if command -v python3 >/dev/null 2>&1; then
+				if python3 - "$config_file" "$plugin_id" <<'PYTHON_EOF'
+import json
+import sys
+from pathlib import Path
+
+config_file = Path(sys.argv[1])
+plugin_id = sys.argv[2]
+
+try:
+    data = json.loads(config_file.read_text(encoding='utf-8')) if config_file.exists() else {}
+    if not isinstance(data, dict):
+        data = {}
+except Exception:
+    data = {}
+
+plugins = data.get('plugins')
+if not isinstance(plugins, dict):
+    plugins = {}
+
+a = plugins.get('allow')
+if not isinstance(a, list):
+    a = []
+
+a = [x for x in a if x != plugin_id]
+plugins['allow'] = a
+data['plugins'] = plugins
+config_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')
+PYTHON_EOF
+				then
+					echo "✅ 已从 plugins.allow 移除: $plugin_id"
+					return 0
+				fi
+			fi
+
+			echo "⚠️ plugins.allow 移除失败，请手动检查: $config_file"
+			return 1
+		}
 
 
 
+
+
+		
 		install_plugin() {
-		send_stats "安装插件"
+		send_stats "插件管理"
 		while true; do
 			clear
 			echo "========================================"
-			echo "            插件管理 (安装)            "
+			echo "            插件管理 (安装/删除)            "
 			echo "========================================"
 			echo "当前插件列表:"
 			openclaw plugins list
@@ -11427,77 +11498,110 @@ PYTHON_EOF
 			echo "  - [nostr]        	# 加密隐私聊天"
 			echo "--------------------------------------------------------"
 
-			read -e -p "请输入插件 ID（输入 0 退出）： " raw_input
+			echo "1) 安装/启用插件"
+			echo "2) 删除/禁用插件"
+			echo "0) 返回"
+			read -e -p "请选择操作：" plugin_action
 
+			[ "$plugin_action" = "0" ] && break
+			[ -z "$plugin_action" ] && continue
+
+			read -e -p "请输入插件 ID（空格分隔，输入 0 退出）： " raw_input
 			[ "$raw_input" = "0" ] && break
 			[ -z "$raw_input" ] && continue
 
-			# 1. 自动处理：如果用户输入带 @openclaw/，提取纯 ID 方便路径检查
-			local plugin_id=$(resolve_openclaw_plugin_id "$raw_input")
-			local plugin_full="$raw_input"
+			local success_list=""
+			local failed_list=""
+			local skipped_list=""
+			local changed=false
+			local token
 
-			echo "🔍 正在检查插件状态..."
-			# 获取当前插件列表用于状态检测
-			local plugin_list=$(openclaw plugins list 2>/dev/null)
+			for token in $raw_input; do
+				local plugin_id
+				local plugin_full
+				plugin_id=$(resolve_openclaw_plugin_id "$token")
+				plugin_full="$token"
+				[ -z "$plugin_id" ] && continue
 
-			# 2. 检查是否已经在 list 中且为 disabled (最常见的情况)
-			if echo "$plugin_list" | grep -qw "$plugin_id" && echo "$plugin_list" | grep "$plugin_id" | grep -q "disabled"; then
-				echo "💡 插件 [$plugin_id] 已预装，正在激活..."
-				openclaw plugins enable "$plugin_id" && echo "✅ 激活成功" || echo "❌ 激活失败"
+				if [ "$plugin_action" = "1" ]; then
+					echo "🔍 正在检查插件状态: $plugin_id"
+					local plugin_list
+					plugin_list=$(openclaw plugins list 2>/dev/null)
 
-			# 3. 检查系统物理目录是否存在
-			elif [ -d "/usr/lib/node_modules/openclaw/extensions/$plugin_id" ]; then
-				echo "💡 发现系统内置目录存在该插件，尝试直接启用..."
-				openclaw plugins enable "$plugin_id"
-
-			else
-				# 4. 远程安装逻辑
-				echo "📥 本地未发现，尝试下载安装..."
-
-				# 清理旧的失败残留
-				rm -rf "/root/.openclaw/extensions/$plugin_id"
-
-				# 执行安装，并捕获结果
-				if openclaw plugins install "$plugin_full"; then
-					echo "✅ 下载成功，正在启用..."
-					openclaw plugins enable "$plugin_id"
-				else
-					echo "⚠️ 官方渠道下载失败，尝试备选方案..."
-					# 备选 npm 安装
-					if npm install -g "$plugin_full" --unsafe-perm; then
-						echo "✅ npm 安装成功，尝试启用..."
-						openclaw plugins enable "$plugin_id"
-					else
-						echo "❌ 严重错误：无法获取该插件。请检查 ID 是否正确或网络是否可用。"
-						# 关键：这里直接 return 或 continue，不走下面的 start_gateway，防止写死配置
-						break_end
+					if echo "$plugin_list" | grep -qw "$plugin_id" && echo "$plugin_list" | grep "$plugin_id" | grep -q "disabled"; then
+						echo "💡 插件 [$plugin_id] 已预装，正在激活..."
+						if openclaw plugins enable "$plugin_id"; then
+							sync_openclaw_plugin_allowlist "$plugin_id"
+							success_list="$success_list $plugin_id"
+							changed=true
+						else
+							failed_list="$failed_list $plugin_id"
+						fi
 						continue
 					fi
+
+					if [ -d "/usr/lib/node_modules/openclaw/extensions/$plugin_id" ]; then
+						echo "💡 发现系统内置目录存在该插件，尝试直接启用..."
+						if openclaw plugins enable "$plugin_id"; then
+							sync_openclaw_plugin_allowlist "$plugin_id"
+							success_list="$success_list $plugin_id"
+							changed=true
+						else
+							failed_list="$failed_list $plugin_id"
+						fi
+						continue
+					fi
+
+					echo "📥 本地未发现，尝试下载安装: $plugin_full"
+					rm -rf "/root/.openclaw/extensions/$plugin_id"
+					if openclaw plugins install "$plugin_full"; then
+						echo "✅ 下载成功，正在启用..."
+						if openclaw plugins enable "$plugin_id"; then
+							sync_openclaw_plugin_allowlist "$plugin_id"
+							success_list="$success_list $plugin_id"
+							changed=true
+						else
+							failed_list="$failed_list $plugin_id"
+						fi
+					else
+						echo "❌ 安装失败：$plugin_full"
+						failed_list="$failed_list $plugin_id"
+					fi
+				else
+					echo "🗑️ 正在删除/禁用插件: $plugin_id"
+					openclaw plugins disable "$plugin_id" >/dev/null 2>&1
+					if openclaw plugins uninstall "$plugin_id"; then
+						echo "✅ 已卸载: $plugin_id"
+					else
+						echo "⚠️ 卸载失败，可能为预装插件，仅禁用: $plugin_id"
+					fi
+					sync_openclaw_plugin_denylist "$plugin_id" >/dev/null 2>&1
+					success_list="$success_list $plugin_id"
+					changed=true
 				fi
+			done
+
+			echo ""
+			echo "====== 操作汇总 ======"
+			echo "✅ 成功:$success_list"
+			[ -n "$failed_list" ] && echo "❌ 失败:$failed_list"
+			[ -n "$skipped_list" ] && echo "⏭️ 跳过:$skipped_list"
+
+			if [ "$changed" = true ]; then
+				echo "🔄 正在重启 OpenClaw 服务以加载变更..."
+				start_gateway
 			fi
-
-			echo "🔐 正在同步 plugins.allow 白名单..."
-			sync_openclaw_plugin_allowlist "$plugin_id"
-
-
-			echo "🔄 正在重启 OpenClaw 服务以加载新插件..."
-			start_gateway
 			break_end
 		done
 	}
 
 
-
-
-
-
-
 	install_skill() {
-		send_stats "安装技能"
+		send_stats "技能管理"
 		while true; do
 			clear
 			echo "========================================"
-			echo "            技能管理 (安装)            "
+			echo "            技能管理 (安装/删除)            "
 			echo "========================================"
 			echo "当前已安装技能:"
 			openclaw skills list
@@ -11521,57 +11625,95 @@ PYTHON_EOF
 			echo "coding-agent       # 自动运行 Claude Code/Codex 等编程助手"
 			echo "----------------------------------------"
 
-			# 提示用户输入技能名称
-			read -e -p "请输入要安装的技能名称（输入 0 退出）： " skill_name
+			echo "1) 安装技能"
+			echo "2) 删除技能"
+			echo "0) 返回"
+			read -e -p "请选择操作：" skill_action
 
-			# 1. 检查是否输入 0 以退出
-			if [ "$skill_name" = "0" ]; then
-				echo "操作已取消，退出技能安装。"
-				break
-			fi
+			[ "$skill_action" = "0" ] && break
+			[ -z "$skill_action" ] && continue
 
-			# 2. 验证输入是否为空
-			if [ -z "$skill_name" ]; then
-				echo "错误：技能名称不能为空。请重试。"
-				echo ""
-				continue
-			fi
+			read -e -p "请输入技能名称（空格分隔，输入 0 退出）： " skill_input
+			[ "$skill_input" = "0" ] && break
+			[ -z "$skill_input" ] && continue
 
-			# 3. 检查技能是否已安装
-			local skill_found=false
-			if [ -d "${HOME}/.openclaw/workspace/skills/${skill_name}" ]; then
-				echo "💡 技能 [$skill_name] 已在用户目录安装。"
-				skill_found=true
-			elif [ -d "/usr/lib/node_modules/openclaw/skills/${skill_name}" ]; then
-				echo "💡 技能 [$skill_name] 已在系统目录安装。"
-				skill_found=true
-			fi
+			local success_list=""
+			local failed_list=""
+			local skipped_list=""
+			local changed=false
+			local token
 
-			if [ "$skill_found" = true ]; then
-				read -e -p "是否重新安装？(y/N): " reinstall
-				if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
-					echo "跳过安装。"
+			if [ "$skill_action" = "2" ]; then
+				read -e -p "二次确认：删除仅影响用户目录 ~/.openclaw/workspace/skills，确认继续？(y/N): " confirm_del
+				if [[ ! "$confirm_del" =~ ^[Yy]$ ]]; then
+					echo "已取消删除。"
 					break_end
 					continue
 				fi
 			fi
 
-			# 4. 执行安装命令
-			echo "正在安装技能：$skill_name ..."
-			if npx clawhub install "$skill_name"; then
-				echo "✅ 技能 $skill_name 安装成功。"
-				start_gateway
-			else
-				echo "❌ 安装失败。请检查技能名称是否正确，或参考文档排查。"
-			fi
+			for token in $skill_input; do
+				local skill_name
+				skill_name="$token"
+				[ -z "$skill_name" ] && continue
 
+				if [ "$skill_action" = "1" ]; then
+					local skill_found=false
+					if [ -d "${HOME}/.openclaw/workspace/skills/${skill_name}" ]; then
+						echo "💡 技能 [$skill_name] 已在用户目录安装。"
+						skill_found=true
+					elif [ -d "/usr/lib/node_modules/openclaw/skills/${skill_name}" ]; then
+						echo "💡 技能 [$skill_name] 已在系统目录安装。"
+						skill_found=true
+					fi
+
+					if [ "$skill_found" = true ]; then
+						read -e -p "技能 [$skill_name] 已安装，是否重新安装？(y/N): " reinstall
+						if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
+							skipped_list="$skipped_list $skill_name"
+							continue
+						fi
+					fi
+
+					echo "正在安装技能：$skill_name ..."
+					if npx clawhub install "$skill_name" --yes --no-input 2>/dev/null || npx clawhub install "$skill_name"; then
+						echo "✅ 技能 $skill_name 安装成功。"
+						success_list="$success_list $skill_name"
+						changed=true
+					else
+						echo "❌ 安装失败：$skill_name"
+						failed_list="$failed_list $skill_name"
+					fi
+				else
+					echo "🗑️ 正在删除技能: $skill_name"
+					npx clawhub uninstall "$skill_name" --yes --no-input 2>/dev/null || npx clawhub uninstall "$skill_name" >/dev/null 2>&1
+					if [ -d "${HOME}/.openclaw/workspace/skills/${skill_name}" ]; then
+						rm -rf "${HOME}/.openclaw/workspace/skills/${skill_name}"
+						echo "✅ 已删除用户技能目录: $skill_name"
+						success_list="$success_list $skill_name"
+						changed=true
+					else
+						echo "⏭️ 未发现用户技能目录: $skill_name"
+						skipped_list="$skipped_list $skill_name"
+					fi
+				fi
+			done
+
+			echo ""
+			echo "====== 操作汇总 ======"
+			echo "✅ 成功:$success_list"
+			[ -n "$failed_list" ] && echo "❌ 失败:$failed_list"
+			[ -n "$skipped_list" ] && echo "⏭️ 跳过:$skipped_list"
+
+			if [ "$changed" = true ]; then
+				echo "🔄 正在重启 OpenClaw 服务以加载变更..."
+				start_gateway
+			fi
 			break_end
 		done
 	}
 
-
-
-	openclaw_json_get_bool() {
+openclaw_json_get_bool() {
 		local expr="$1"
 		local config_file="${HOME}/.openclaw/openclaw.json"
 		if [ ! -s "$config_file" ]; then
@@ -12367,6 +12509,310 @@ EOF
 		break_end
 	}
 
+	openclaw_memory_config_file() {
+		echo "${HOME}/.openclaw/openclaw.json"
+	}
+
+	openclaw_memory_get_backend() {
+		local config_file
+		config_file=$(openclaw_memory_config_file)
+		[ -s "$config_file" ] || { echo ""; return 0; }
+		python3 - "$config_file" <<'PY'
+import json,sys
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    backend = data.get('memory', {}).get('backend', '')
+    print(backend if isinstance(backend, str) else '')
+except Exception:
+    print('')
+PY
+	}
+
+	openclaw_memory_get_local_model_path() {
+		local config_file
+		config_file=$(openclaw_memory_config_file)
+		[ -s "$config_file" ] || { echo ""; return 0; }
+		python3 - "$config_file" <<'PY'
+import json,sys
+path = sys.argv[1]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    obj = data.get('agents', {}).get('defaults', {}).get('memorySearch', {}).get('local', {})
+    model_path = obj.get('modelPath', '') if isinstance(obj, dict) else ''
+    print(model_path if isinstance(model_path, str) else '')
+except Exception:
+    print('')
+PY
+	}
+
+	openclaw_memory_local_model_status() {
+		local model_path="$1"
+		if [ -z "$model_path" ]; then
+			echo "missing"
+			return
+		fi
+		if [[ "$model_path" == hf:* ]]; then
+			echo "hf"
+			return
+		fi
+		if [ -f "$model_path" ]; then
+			echo "ok"
+		else
+			echo "missing"
+		fi
+	}
+
+	openclaw_memory_qmd_available() {
+		if command -v qmd >/dev/null 2>&1; then
+			echo "true"
+			return
+		fi
+		if command -v openclaw >/dev/null 2>&1 && openclaw memory status >/dev/null 2>&1; then
+			echo "true"
+			return
+		fi
+		if [ -s "${HOME}/.openclaw/openclaw.json" ] && command -v jq >/dev/null 2>&1; then
+			if jq -e '.memory.backend == "qmd"' "${HOME}/.openclaw/openclaw.json" >/dev/null 2>&1; then
+				echo "true"
+				return
+			fi
+		fi
+		echo "false"
+	}
+
+	openclaw_memory_probe_url() {
+		local url="$1"
+		if ! command -v curl >/dev/null 2>&1; then
+			echo "unknown"
+			return
+		fi
+		if [ -z "$url" ]; then
+			echo "unknown"
+			return
+		fi
+		if curl -I -m 2 -s "$url" >/dev/null 2>&1; then
+			echo "ok"
+		else
+			echo "fail"
+		fi
+	}
+
+	openclaw_memory_recommend() {
+		local qmd_ok model_path model_status hf_ok mirror_ok
+		qmd_ok=$(openclaw_memory_qmd_available)
+		model_path=$(openclaw_memory_get_local_model_path)
+		model_status=$(openclaw_memory_local_model_status "$model_path")
+		hf_ok=$(openclaw_memory_probe_url "https://huggingface.co")
+		mirror_ok=$(openclaw_memory_probe_url "https://hf-mirror.com")
+
+		OPENCLAW_MEMORY_RECOMMEND_REASON=()
+		if [ "$qmd_ok" = "true" ]; then
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("QMD 可用")
+		else
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("未检测到 QMD")
+		fi
+		if [ -n "$model_path" ]; then
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("本地模型路径: $model_path")
+		else
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("未配置本地模型路径")
+		fi
+		case "$model_status" in
+			ok) OPENCLAW_MEMORY_RECOMMEND_REASON+=("本地模型文件存在") ;;
+			hf) OPENCLAW_MEMORY_RECOMMEND_REASON+=("模型来自 HF 下载源（国内可能慢/失败）") ;;
+			*) OPENCLAW_MEMORY_RECOMMEND_REASON+=("本地模型文件不存在或不可用") ;;
+		esac
+		if [ "$hf_ok" = "ok" ]; then
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("huggingface.co 可访问")
+		elif [ "$mirror_ok" = "ok" ]; then
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("hf-mirror.com 可访问")
+		else
+			OPENCLAW_MEMORY_RECOMMEND_REASON+=("huggingface.co / hf-mirror.com 可能不可达（疑似国内/受限网络）")
+		fi
+
+		if [ "$qmd_ok" = "true" ]; then
+			if [ "$model_status" = "ok" ]; then
+				OPENCLAW_MEMORY_RECOMMEND="local"
+			elif [ "$model_status" = "hf" ] && { [ "$hf_ok" = "ok" ] || [ "$mirror_ok" = "ok" ]; }; then
+				OPENCLAW_MEMORY_RECOMMEND="local"
+			elif [ "$model_status" = "hf" ] && [ "$hf_ok" = "fail" ] && [ "$mirror_ok" = "fail" ]; then
+				OPENCLAW_MEMORY_RECOMMEND="qmd"
+			else
+				OPENCLAW_MEMORY_RECOMMEND="qmd"
+			fi
+		else
+			if [ "$model_status" = "ok" ]; then
+				OPENCLAW_MEMORY_RECOMMEND="local"
+			else
+				OPENCLAW_MEMORY_RECOMMEND="qmd"
+			fi
+		fi
+	}
+
+	openclaw_memory_apply_scheme() {
+		local scheme="$1"
+		local config_file
+		config_file=$(openclaw_memory_config_file)
+		if [ ! -f "$config_file" ]; then
+			echo "❌ 未找到配置文件: $config_file"
+			return 1
+		fi
+		python3 - "$config_file" "$scheme" <<'PY'
+import json,sys
+path = sys.argv[1]
+scheme = sys.argv[2]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+mem = data.setdefault('memory', {})
+if scheme == 'qmd':
+    mem['backend'] = 'qmd'
+    qmd = mem.setdefault('qmd', {})
+    qmd.setdefault('command', 'qmd')
+elif scheme == 'local':
+    mem['backend'] = 'local'
+    agents = data.setdefault('agents', {})
+    defaults = agents.setdefault('defaults', {})
+    memory_search = defaults.setdefault('memorySearch', {})
+    memory_search['provider'] = 'local'
+else:
+    raise SystemExit(2)
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+PY
+		if [ $? -ne 0 ]; then
+			echo "❌ 写入配置失败"
+			return 1
+		fi
+		echo "✅ 已更新记忆方案配置"
+		return 0
+	}
+
+	openclaw_memory_offer_restart() {
+		echo "配置已写入，需要重启 OpenClaw 网关后生效。"
+		read -e -p "是否立即重启 OpenClaw 网关？(Y/n): " restart_choice
+		if [[ "$restart_choice" =~ ^[Nn]$ ]]; then
+			echo "已跳过重启，可稍后执行: openclaw gateway restart"
+			return 0
+		fi
+		if declare -F start_gateway >/dev/null 2>&1; then
+			start_gateway
+		else
+			openclaw gateway restart
+		fi
+	}
+
+	openclaw_memory_fix_index() {
+		local config_file
+		config_file=$(openclaw_memory_config_file)
+		if [ ! -f "$config_file" ]; then
+			echo "❌ 未找到配置文件: $config_file"
+			break_end
+			return 1
+		fi
+		echo "适用场景：Indexed 分子 > 分母（重复 collection 导致计数异常）"
+		read -e -p "确认将 includeDefaultMemory 设为 false？(y/N): " confirm_fix
+		if [[ ! "$confirm_fix" =~ ^[Yy]$ ]]; then
+			echo "已取消。"
+			break_end
+			return 0
+		fi
+		python3 - "$config_file" <<'PY'
+import json,sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+mem = data.setdefault('memory', {})
+qmd = mem.setdefault('qmd', {})
+qmd['includeDefaultMemory'] = False
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+PY
+		if [ $? -ne 0 ]; then
+			echo "❌ 写入配置失败"
+			break_end
+			return 1
+		fi
+		echo "✅ 已设置 includeDefaultMemory=false"
+		read -e -p "是否立即执行 openclaw memory index --force？(y/N): " rebuild_choice
+		if [[ "$rebuild_choice" =~ ^[Yy]$ ]]; then
+			openclaw memory index --force
+		fi
+		break_end
+	}
+
+	openclaw_memory_scheme_menu() {
+		while true; do
+			clear
+			echo "======================================="
+			echo "OpenClaw 记忆方案"
+			echo "======================================="
+			local backend current_label
+			backend=$(openclaw_memory_get_backend)
+			case "$backend" in
+				qmd) current_label="QMD" ;;
+				local) current_label="Local" ;;
+				*) current_label="未配置" ;;
+			esac
+			echo "当前方案: $current_label"
+			echo ""
+			echo "QMD  : 轻量索引，依赖 qmd 命令（适合网络受限）"
+			echo "Local: 本地向量检索，依赖 embedding 模型文件"
+			echo "Auto : 自动推荐（基于可用性 + 网络探测）"
+			echo "---------------------------------------"
+			echo "1. 自动推荐并应用"
+			echo "2. 手动选择 QMD"
+			echo "3. 手动选择 Local"
+			echo "0. 返回上一级"
+			echo "---------------------------------------"
+			read -e -p "请输入你的选择: " scheme_choice
+			case "$scheme_choice" in
+				1)
+					openclaw_memory_recommend
+					local recommend_label
+					if [ "$OPENCLAW_MEMORY_RECOMMEND" = "qmd" ]; then
+						recommend_label="QMD"
+					else
+						recommend_label="Local"
+					fi
+					echo "推荐方案: $recommend_label"
+					echo "推荐原因:"
+					for reason in "${OPENCLAW_MEMORY_RECOMMEND_REASON[@]}"; do
+						echo "  - $reason"
+					done
+					read -e -p "是否应用该方案？(Y/n): " apply_choice
+					if [[ "$apply_choice" =~ ^[Nn]$ ]]; then
+						break_end
+						continue
+					fi
+					openclaw_memory_apply_scheme "$OPENCLAW_MEMORY_RECOMMEND" || { break_end; continue; }
+					openclaw_memory_offer_restart
+					break_end
+					;;
+				2)
+					openclaw_memory_apply_scheme "qmd" || { break_end; continue; }
+					openclaw_memory_offer_restart
+					break_end
+					;;
+				3)
+					openclaw_memory_apply_scheme "local" || { break_end; continue; }
+					openclaw_memory_offer_restart
+					break_end
+					;;
+				0)
+					return 0
+					;;
+				*)
+					echo "无效的选择，请重试。"
+					sleep 1
+					;;
+			esac
+		done
+	}
+
 	openclaw_memory_file_collect() {
 		OPENCLAW_MEMORY_FILES=()
 		local base_dir="${HOME}/.openclaw/workspace"
@@ -12395,7 +12841,7 @@ EOF
 			rel="${file#$base_dir/}"
 			size=$(ls -lh "$file" | awk '{print $5}')
 			mtime=$(date -d "$(stat -c %y "$file")" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || stat -c %y "$file" | awk '{print $1" "$2}')
-			printf "%s | %s | %s | %s\n" "$((i+1))" "$rel" "$size" "$mtime"
+			printf "%s | %s | %s | %s\\n" "$((i+1))" "$rel" "$size" "$mtime"
 		done
 	}
 
@@ -12407,12 +12853,12 @@ EOF
 		}
 		local total_lines
 		total_lines=$(wc -l < "$file" 2>/dev/null || echo 0)
-		local default_lines=200
+		local default_lines=120
 		local start_line count
 		echo "文件: $file"
 		echo "总行数: $total_lines"
-		read -e -p "请输入起始行（默认末尾 $default_lines 行）: " start_line
-		read -e -p "请输入显示行数（默认 $default_lines）: " count
+		read -e -p "请输入起始行（回车默认末尾 $default_lines 行）: " start_line
+		read -e -p "请输入显示行数（回车默认 $default_lines）: " count
 		[ -z "$count" ] && count=$default_lines
 		if [ -z "$start_line" ]; then
 			if [ "$total_lines" -le "$count" ]; then
@@ -12485,18 +12931,26 @@ EOF
 			echo "======================================="
 			echo "OpenClaw 记忆管理"
 			echo "======================================="
-			echo "1. 记忆索引状态"
-			echo "2. 更新记忆索引"
-			echo "3. 查看记忆文件"
+			status_output=$(openclaw memory status 2>/dev/null)
+			if [ $? -ne 0 ] || [ -z "$status_output" ]; then
+				echo "获取状态失败"
+			else
+				status_lines=$(echo "$status_output" | grep -E "^(Provider|Vector|Indexed)" | head -n 3 | sed -e 's/^Provider: /底层方案: /' -e 's/^Vector: /向量库状态: /' -e 's/^Indexed: /已收录文件: /')
+				if [ -z "$status_lines" ]; then
+					echo "未安装/未启动"
+				else
+					echo "$status_lines"
+				fi
+			fi
+			echo "1. 更新记忆索引"
+			echo "2. 查看记忆文件"
+			echo "3. 索引修复（Indexed 异常）"
+			echo "4. 记忆方案（QMD/Local/Auto）"
 			echo "0. 返回上一级"
 			echo "---------------------------------------"
 			read -e -p "请输入你的选择: " memory_choice
 			case "$memory_choice" in
 				1)
-					openclaw memory status
-					break_end
-					;;
-				2)
 					echo "即将更新记忆索引。"
 					read -e -p "第一次确认：输入 yes 继续: " confirm_step1
 					if [ "$confirm_step1" != "yes" ]; then
@@ -12512,8 +12966,14 @@ EOF
 					fi
 					break_end
 					;;
-				3)
+				2)
 					openclaw_memory_files_menu
+					;;
+				3)
+					openclaw_memory_fix_index
+					;;
+				4)
+					openclaw_memory_scheme_menu
 					;;
 				0)
 					return 0
@@ -12527,6 +12987,7 @@ EOF
 	}
 
 	openclaw_backup_restore_menu() {
+
 		send_stats "OpenClaw备份与还原"
 		while true; do
 			clear
