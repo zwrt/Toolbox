@@ -10164,12 +10164,9 @@ def detect_api_protocol(base_url, api_key):
     code, err = probe_endpoint(base_url, api_key, '/responses')
     if code is not None and code not in (404, 405):
         return 'openai-responses', f'POST /responses -> HTTP {code}', None
-    code2, err2 = probe_endpoint(base_url, api_key, '/chat/completions')
-    if code2 is not None and code2 not in (404, 405):
-        return 'openai-chat-completions', f'POST /chat/completions -> HTTP {code2}', None
-    if err or err2:
-        return 'openai-completions', 'fallback: probe failed', err or err2
-    return 'openai-completions', f'POST /responses={code}, /chat/completions={code2} -> fallback /completions', None
+    if err:
+        return 'openai-completions', 'fallback: probe failed', err
+    return 'openai-completions', f'POST /responses={code} -> fallback /completions', None
 
 
 def send_stat(action):
@@ -10216,7 +10213,7 @@ else:
     defaults_models = {}
 defaults['models'] = defaults_models
 
-SUPPORTED_APIS = {'openai-completions', 'openai-responses', 'openai-chat-completions'}
+SUPPORTED_APIS = {'openai-completions', 'openai-responses'}
 
 changed = False
 fatal_errors = []
@@ -10359,12 +10356,9 @@ def detect_api_protocol(base_url, api_key):
     code, err = probe_endpoint(base_url, api_key, '/responses')
     if code is not None and code not in (404, 405):
         return 'openai-responses', f'POST /responses -> HTTP {code}', None
-    code2, err2 = probe_endpoint(base_url, api_key, '/chat/completions')
-    if code2 is not None and code2 not in (404, 405):
-        return 'openai-chat-completions', f'POST /chat/completions -> HTTP {code2}', None
-    if err or err2:
-        return 'openai-completions', 'fallback: probe failed', err or err2
-    return 'openai-completions', f'POST /responses={code}, /chat/completions={code2} -> fallback /completions', None
+    if err:
+        return 'openai-completions', 'fallback: probe failed', err
+    return 'openai-completions', f'POST /responses={code} -> fallback /completions', None
 
 
 def fetch_remote_models_with_retry(name, base_url, api_key, retries=3):
@@ -10404,8 +10398,10 @@ for name, provider in list(providers.items()):
         continue
 
     if api not in SUPPORTED_APIS:
-        summary.append(f'ℹ️ 跳过 {name}: 不支持直接 /models 校验 (api={api})')
-        continue
+        summary.append(f'🔁 {name}: 发现非法协议 {api or "(unset)"}，将重新探测')
+        provider['api'] = ''
+        api = ''
+        changed = True
 
     try:
         detected_api, detected_reason, detect_err = detect_api_protocol(base_url, api_key)
@@ -10598,7 +10594,7 @@ PY
 
 
 
-	# OpenClaw API 协议探测（优先 responses -> chat/completions -> completions）
+	# OpenClaw API 协议探测（优先 responses -> completions）
 	openclaw_probe_api_endpoint() {
 		local base_url="$1"
 		local api_key="$2"
@@ -10620,10 +10616,9 @@ PY
 		local base_url="$1"
 		local api_key="$2"
 		local code_responses="000"
-		local code_chat="000"
 
 		DETECTED_API="openai-completions"
-		DETECTED_REASON="fallback: /responses & /chat/completions not supported"
+		DETECTED_REASON="fallback: /responses not supported"
 
 		code_responses=$(openclaw_probe_api_endpoint "$base_url" "$api_key" "/responses")
 		if [[ "$code_responses" != "404" && "$code_responses" != "405" && "$code_responses" != "000" ]]; then
@@ -10632,15 +10627,8 @@ PY
 			return 0
 		fi
 
-		code_chat=$(openclaw_probe_api_endpoint "$base_url" "$api_key" "/chat/completions")
-		if [[ "$code_chat" != "404" && "$code_chat" != "405" && "$code_chat" != "000" ]]; then
-			DETECTED_API="openai-chat-completions"
-			DETECTED_REASON="POST /chat/completions -> HTTP $code_chat"
-			return 0
-		fi
-
 		DETECTED_API="openai-completions"
-		DETECTED_REASON="POST /responses=$code_responses, /chat/completions=$code_chat -> fallback /completions"
+		DETECTED_REASON="POST /responses=$code_responses -> fallback /completions"
 		return 0
 	}
 
@@ -10909,7 +10897,7 @@ import time
 import urllib.request
 
 path = sys.argv[1]
-SUPPORTED_APIS = {'openai-completions', 'openai-responses', 'openai-chat-completions'}
+SUPPORTED_APIS = {'openai-completions', 'openai-responses'}
 
 
 def ping_models(base_url, api_key):
@@ -11026,7 +11014,7 @@ import urllib.request
 
 path = sys.argv[1]
 target = sys.argv[2]
-SUPPORTED_APIS = {'openai-completions', 'openai-responses', 'openai-chat-completions'}
+SUPPORTED_APIS = {'openai-completions', 'openai-responses'}
 
 def probe_endpoint(base_url, api_key, path, timeout=6):
     url = base_url.rstrip('/') + path
@@ -11053,12 +11041,9 @@ def detect_api_protocol(base_url, api_key):
     code, err = probe_endpoint(base_url, api_key, '/responses')
     if code is not None and code not in (404, 405):
         return 'openai-responses', f'POST /responses -> HTTP {code}', None
-    code2, err2 = probe_endpoint(base_url, api_key, '/chat/completions')
-    if code2 is not None and code2 not in (404, 405):
-        return 'openai-chat-completions', f'POST /chat/completions -> HTTP {code2}', None
-    if err or err2:
-        return 'openai-completions', 'fallback: probe failed', err or err2
-    return 'openai-completions', f'POST /responses={code}, /chat/completions={code2} -> fallback /completions', None
+    if err:
+        return 'openai-completions', 'fallback: probe failed', err
+    return 'openai-completions', f'POST /responses={code} -> fallback /completions', None
 
 with open(path, 'r', encoding='utf-8') as f:
     obj = json.load(f)
@@ -11143,8 +11128,9 @@ if not base_url or not api_key or not isinstance(model_list, list) or not model_
     raise SystemExit(3)
 
 if api not in SUPPORTED_APIS:
-    print(f'❌ provider {target} 当前 api={api}，不支持直接 /models 同步')
-    raise SystemExit(3)
+    print(f'ℹ️ provider {target} 当前 api={api}，将重新探测协议后继续')
+    provider['api'] = ''
+    api = ''
 
 protocol_msg = None
 try:
@@ -11292,7 +11278,7 @@ import urllib.request
 
 path = sys.argv[1]
 name = sys.argv[2]
-SUPPORTED_APIS = {'openai-completions', 'openai-responses', 'openai-chat-completions'}
+SUPPORTED_APIS = {'openai-completions', 'openai-responses'}
 
 def probe_endpoint(base_url, api_key, path, timeout=6):
     url = base_url.rstrip('/') + path
@@ -11319,12 +11305,9 @@ def detect_api_protocol(base_url, api_key):
     code, err = probe_endpoint(base_url, api_key, '/responses')
     if code is not None and code not in (404, 405):
         return 'openai-responses', f'POST /responses -> HTTP {code}', None
-    code2, err2 = probe_endpoint(base_url, api_key, '/chat/completions')
-    if code2 is not None and code2 not in (404, 405):
-        return 'openai-chat-completions', f'POST /chat/completions -> HTTP {code2}', None
-    if err or err2:
-        return 'openai-completions', 'fallback: probe failed', err or err2
-    return 'openai-completions', f'POST /responses={code}, /chat/completions={code2} -> fallback /completions', None
+    if err:
+        return 'openai-completions', 'fallback: probe failed', err
+    return 'openai-completions', f'POST /responses={code} -> fallback /completions', None
 
 try:
     with open(path, 'r', encoding='utf-8') as f:
@@ -12833,6 +12816,80 @@ EOF
 		echo "${HOME}/.openclaw/openclaw.json"
 	}
 
+	openclaw_memory_config_get() {
+		local key="$1"
+		local default_value="${2:-}"
+		local value
+		value=$(openclaw config get "$key" 2>/dev/null | head -n 1 | sed -e 's/^"//' -e 's/"$//')
+		if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = "undefined" ]; then
+			echo "$default_value"
+			return 0
+		fi
+		echo "$value"
+	}
+
+	openclaw_memory_config_set() {
+		local key="$1"
+		shift
+		openclaw config set "$key" "$@" >/dev/null 2>&1
+	}
+
+	openclaw_memory_status_value() {
+		local key="$1"
+		openclaw memory status 2>/dev/null | awk -F': ' -v k="$key" '$1==k {print $2; exit}'
+	}
+
+	openclaw_memory_expand_path() {
+		local raw_path="$1"
+		if [ -z "$raw_path" ]; then
+			echo ""
+			return 0
+		fi
+		raw_path=$(echo "$raw_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+		if [[ "$raw_path" == ~* ]]; then
+			echo "${raw_path/#\~/$HOME}"
+		else
+			echo "$raw_path"
+		fi
+	}
+
+	openclaw_memory_rebuild_index_safe() {
+		local store_raw store_file ts backup_file
+		store_raw=$(openclaw_memory_status_value "Store")
+		store_file=$(openclaw_memory_expand_path "$store_raw")
+		if [ -z "$store_file" ] || [ ! -f "$store_file" ]; then
+			echo "⚠️ 未找到索引库文件，可能为空或不存在。"
+			echo "   Store 原始值: ${store_raw:-<空>}"
+			echo "   仍将执行重建索引。"
+		else
+			ts=$(date +%Y%m%d_%H%M%S)
+			backup_file="${store_file}.bak.${ts}"
+			if mv "$store_file" "$backup_file"; then
+				echo "✅ 已备份索引: $backup_file"
+			else
+				echo "⚠️ 索引备份失败，继续重建。"
+			fi
+		fi
+		openclaw memory index --force
+		echo ""
+		openclaw_memory_render_status
+	}
+
+	openclaw_memory_prepare_workspace() {
+		local workspace memory_dir
+		workspace=$(openclaw_memory_status_value "Workspace")
+		if [ -z "$workspace" ]; then
+			echo "⚠️ 未能获取 Workspace 路径，跳过目录修复。"
+			return 1
+		fi
+		memory_dir="$workspace/memory"
+		if [ ! -d "$memory_dir" ]; then
+			echo "🔧 记忆目录不存在，已自动创建: $memory_dir"
+			mkdir -p "$memory_dir"
+		fi
+		return 0
+	}
+
 	openclaw_memory_render_status() {
 		local status_output status_lines config_file config_display
 		status_output=$(openclaw memory status 2>/dev/null)
@@ -12849,38 +12906,11 @@ EOF
 	}
 
 	openclaw_memory_get_backend() {
-		local config_file
-		config_file=$(openclaw_memory_config_file)
-		[ -s "$config_file" ] || { echo ""; return 0; }
-		python3 - "$config_file" <<'PY'
-import json,sys
-path = sys.argv[1]
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    backend = data.get('memory', {}).get('backend', '')
-    print(backend if isinstance(backend, str) else '')
-except Exception:
-    print('')
-PY
+		openclaw_memory_config_get "memory.backend"
 	}
 
 	openclaw_memory_get_local_model_path() {
-		local config_file
-		config_file=$(openclaw_memory_config_file)
-		[ -s "$config_file" ] || { echo ""; return 0; }
-		python3 - "$config_file" <<'PY'
-import json,sys
-path = sys.argv[1]
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    obj = data.get('agents', {}).get('defaults', {}).get('memorySearch', {}).get('local', {})
-    model_path = obj.get('modelPath', '') if isinstance(obj, dict) else ''
-    print(model_path if isinstance(model_path, str) else '')
-except Exception:
-    print('')
-PY
+		openclaw_memory_config_get "agents.defaults.memorySearch.local.modelPath"
 	}
 
 	openclaw_memory_local_model_status() {
@@ -12905,17 +12935,11 @@ PY
 			echo "true"
 			return
 		fi
-		if command -v openclaw >/dev/null 2>&1 && openclaw memory status >/dev/null 2>&1; then
+		local backend
+		backend=$(openclaw_memory_config_get "memory.backend")
+		if [ "$backend" = "qmd" ]; then
 			echo "true"
 			return
-		fi
-		local config_file
-		config_file=$(openclaw_memory_config_file)
-		if [ -s "$config_file" ] && command -v jq >/dev/null 2>&1; then
-			if jq -e '.memory.backend == "qmd"' "$config_file" >/dev/null 2>&1; then
-				echo "true"
-				return
-			fi
 		fi
 		echo "false"
 	}
@@ -12988,41 +13012,340 @@ PY
 		fi
 	}
 
+
+	openclaw_memory_detect_region() {
+		OPENCLAW_MEMORY_COUNTRY="unknown"
+		OPENCLAW_MEMORY_USE_MIRROR="false"
+		if command -v curl >/dev/null 2>&1; then
+			OPENCLAW_MEMORY_COUNTRY=$(curl -s -m 2 ipinfo.io/country | tr -d '
+' | tr -d '
+')
+		fi
+		case "$OPENCLAW_MEMORY_COUNTRY" in
+			CN|HK)
+				OPENCLAW_MEMORY_USE_MIRROR="true"
+				;;
+		esac
+	}
+
+	openclaw_memory_select_sources() {
+		local hf_ok mirror_ok
+		hf_ok=$(openclaw_memory_probe_url "https://huggingface.co")
+		mirror_ok=$(openclaw_memory_probe_url "https://hf-mirror.com")
+		OPENCLAW_MEMORY_HF_OK="$hf_ok"
+		OPENCLAW_MEMORY_MIRROR_OK="$mirror_ok"
+		if [ "$OPENCLAW_MEMORY_USE_MIRROR" = "true" ]; then
+			if [ "$mirror_ok" = "ok" ]; then
+				OPENCLAW_MEMORY_HF_BASE="https://hf-mirror.com"
+			elif [ "$hf_ok" = "ok" ]; then
+				OPENCLAW_MEMORY_HF_BASE="https://huggingface.co"
+			else
+				OPENCLAW_MEMORY_HF_BASE="https://hf-mirror.com"
+			fi
+			OPENCLAW_MEMORY_GH_PROXY="https://gh.kejilion.pro/"
+		else
+			if [ "$hf_ok" = "ok" ]; then
+				OPENCLAW_MEMORY_HF_BASE="https://huggingface.co"
+			elif [ "$mirror_ok" = "ok" ]; then
+				OPENCLAW_MEMORY_HF_BASE="https://hf-mirror.com"
+			else
+				OPENCLAW_MEMORY_HF_BASE="https://huggingface.co"
+			fi
+			OPENCLAW_MEMORY_GH_PROXY="https://"
+		fi
+	}
+
+	openclaw_memory_download_file() {
+		local url="$1"
+		local dest="$2"
+		mkdir -p "$(dirname "$dest")"
+		if command -v curl >/dev/null 2>&1; then
+			curl -L --fail --retry 2 -o "$dest" "$url"
+			return $?
+		fi
+		if command -v wget >/dev/null 2>&1; then
+			wget -O "$dest" "$url"
+			return $?
+		fi
+		echo "❌ 未检测到 curl 或 wget，无法下载。"
+		return 1
+	}
+
+	openclaw_memory_check_sqlite() {
+		if ! command -v sqlite3 >/dev/null 2>&1; then
+			echo "⚠️ 未检测到 sqlite3，QMD 可能无法正常运行。"
+			return 1
+		fi
+		local ver
+		ver=$(sqlite3 --version 2>/dev/null | awk '{print $1}')
+		echo "✅ sqlite3 可用: ${ver:-unknown}"
+		echo "ℹ️ sqlite 扩展支持无法可靠检测，将继续。"
+		return 0
+	}
+
+	openclaw_memory_ensure_bun() {
+		if [ -x "$HOME/.bun/bin/bun" ]; then
+			export PATH="$HOME/.bun/bin:$PATH"
+		fi
+		if command -v bun >/dev/null 2>&1; then
+			echo "✅ bun 已存在"
+			return 0
+		fi
+		echo "⬇️ 安装 bun..."
+		if command -v curl >/dev/null 2>&1; then
+			curl -fsSL https://bun.sh/install | bash
+		elif command -v wget >/dev/null 2>&1; then
+			wget -qO- https://bun.sh/install | bash
+		else
+			echo "❌ 未检测到 curl 或 wget，无法安装 bun。"
+			return 1
+		fi
+		if [ -d "$HOME/.bun/bin" ]; then
+			export PATH="$HOME/.bun/bin:$PATH"
+		fi
+		if command -v bun >/dev/null 2>&1; then
+			echo "✅ bun 安装完成"
+			return 0
+		fi
+		echo "❌ bun 安装失败"
+		return 1
+	}
+
+	openclaw_memory_ensure_qmd() {
+		local qmd_path
+		qmd_path=$(command -v qmd 2>/dev/null || true)
+		if [ -n "$qmd_path" ]; then
+			echo "✅ qmd 已存在: $qmd_path"
+			OPENCLAW_MEMORY_QMD_PATH="$qmd_path"
+			return 0
+		fi
+		openclaw_memory_ensure_bun || return 1
+		local qmd_url="${OPENCLAW_MEMORY_GH_PROXY}github.com/tobi/qmd"
+		echo "⬇️ 通过 bun 安装 qmd: $qmd_url"
+		bun install -g "$qmd_url"
+		qmd_path=$(command -v qmd 2>/dev/null || true)
+		if [ -z "$qmd_path" ] && [ -x "$HOME/.bun/bin/qmd" ]; then
+			qmd_path="$HOME/.bun/bin/qmd"
+		fi
+		if [ -z "$qmd_path" ]; then
+			echo "❌ qmd 安装失败"
+			return 1
+		fi
+		OPENCLAW_MEMORY_QMD_PATH="$qmd_path"
+		echo "✅ qmd 安装完成: $qmd_path"
+		return 0
+	}
+
+	openclaw_memory_render_auto_summary() {
+		echo "---------------------------------------"
+		echo "✅ 环境就绪"
+		echo "方案: ${OPENCLAW_MEMORY_AUTO_SCHEME:-unknown}"
+		if [ -n "$OPENCLAW_MEMORY_QMD_PATH" ]; then
+			echo "qmd: $OPENCLAW_MEMORY_QMD_PATH"
+		fi
+		if [ -n "$OPENCLAW_MEMORY_MODEL_PATH" ]; then
+			echo "模型: $OPENCLAW_MEMORY_MODEL_PATH"
+		fi
+		if [ -n "$OPENCLAW_MEMORY_COUNTRY" ]; then
+			echo "地区: $OPENCLAW_MEMORY_COUNTRY"
+		fi
+		if [ -n "$OPENCLAW_MEMORY_HF_BASE" ]; then
+			echo "下载源: $OPENCLAW_MEMORY_HF_BASE"
+		fi
+		echo "如需立即生效，请执行: openclaw gateway restart"
+		echo "---------------------------------------"
+	}
+
+	openclaw_memory_auto_confirm() {
+		local scheme_label="$1"
+		echo "即将执行自动部署（可能下载模型 / 写入配置 / 安装依赖）"
+		echo "目标方案: $scheme_label"
+		echo "检测到地区: ${OPENCLAW_MEMORY_COUNTRY:-unknown}"
+		echo "huggingface.co: ${OPENCLAW_MEMORY_HF_OK:-unknown}"
+		echo "hf-mirror.com: ${OPENCLAW_MEMORY_MIRROR_OK:-unknown}"
+		echo "下载源: ${OPENCLAW_MEMORY_HF_BASE:-unknown}"
+		echo "⚠️ 该过程可能产生网络流量与磁盘占用"
+		read -e -p "输入 yes 确认继续（默认 N）: " confirm_step
+		if [ "$confirm_step" != "yes" ]; then
+			echo "已取消自动部署。"
+			return 1
+		fi
+		local preheat_choice
+		read -e -p "是否预热索引（可能下载模型）？(Y/n): " preheat_choice
+		if [[ "$preheat_choice" =~ ^[Nn]$ ]]; then
+			OPENCLAW_MEMORY_PREHEAT="false"
+		else
+			OPENCLAW_MEMORY_PREHEAT="true"
+		fi
+		return 0
+	}
+
+	openclaw_memory_auto_setup_qmd() {
+		echo "🔍 检测 QMD 环境"
+		openclaw_memory_check_sqlite || true
+		openclaw_memory_ensure_qmd || return 1
+		local backend
+		backend=$(openclaw_memory_get_backend)
+		if [ "$backend" = "qmd" ]; then
+			echo "✅ memory.backend 已是 qmd"
+		else
+			openclaw_memory_config_set "memory.backend" "qmd"
+			echo "✅ 已设置 memory.backend=qmd"
+		fi
+		local qmd_cmd
+		qmd_cmd=$(openclaw_memory_config_get "memory.qmd.command")
+		if [ -z "$qmd_cmd" ] || [[ "$qmd_cmd" != /* ]] || [ "$qmd_cmd" != "$OPENCLAW_MEMORY_QMD_PATH" ]; then
+			openclaw_memory_config_set "memory.qmd.command" "$OPENCLAW_MEMORY_QMD_PATH"
+			echo "✅ 已写入 memory.qmd.command: $OPENCLAW_MEMORY_QMD_PATH"
+		else
+			echo "✅ memory.qmd.command 已正确"
+		fi
+		if [ "$OPENCLAW_MEMORY_PREHEAT" = "true" ]; then
+			echo "🔥 预热索引（可能下载模型）"
+			openclaw_memory_prepare_workspace
+			openclaw memory index --force
+		else
+			echo "⏭️ 已跳过预热"
+		fi
+		echo "✅ QMD 自动部署完成"
+	}
+
+	openclaw_memory_auto_setup_local() {
+		echo "🔍 检测 Local 环境"
+		local backend provider
+		backend=$(openclaw_memory_get_backend)
+		if [ "$backend" = "local" ]; then
+			echo "✅ memory.backend 已是 local"
+		else
+			openclaw_memory_config_set "memory.backend" "local"
+			echo "✅ 已设置 memory.backend=local"
+		fi
+		provider=$(openclaw_memory_config_get "agents.defaults.memorySearch.provider")
+		if [ "$provider" = "local" ]; then
+			echo "✅ memorySearch.provider 已是 local"
+		else
+			openclaw_memory_config_set "agents.defaults.memorySearch.provider" "local"
+			echo "✅ 已设置 agents.defaults.memorySearch.provider=local"
+		fi
+
+		local model_path model_status
+		model_path=$(openclaw_memory_get_local_model_path)
+		model_path=$(openclaw_memory_expand_path "$model_path")
+		model_status=$(openclaw_memory_local_model_status "$model_path")
+		if [ "$model_status" = "ok" ]; then
+			echo "✅ 模型文件已存在: $model_path"
+			OPENCLAW_MEMORY_MODEL_PATH="$model_path"
+		else
+			local model_name="embeddinggemma-300M-Q8_0.gguf"
+			local model_dir="$HOME/.openclaw/models/embedding"
+			local model_dest="$model_dir/$model_name"
+			local model_url="${OPENCLAW_MEMORY_HF_BASE}/ggml-org/embeddinggemma-300M-GGUF/resolve/main/$model_name"
+			if [ -f "$model_dest" ]; then
+				echo "✅ 已发现默认模型文件: $model_dest"
+			else
+				echo "⬇️ 下载模型: $model_url"
+				openclaw_memory_download_file "$model_url" "$model_dest" || return 1
+				echo "✅ 模型已下载: $model_dest"
+			fi
+			openclaw_memory_config_set "agents.defaults.memorySearch.local.modelPath" "$model_dest"
+			echo "✅ 已写入模型路径"
+			OPENCLAW_MEMORY_MODEL_PATH="$model_dest"
+		fi
+		echo "🔁 生成索引"
+		openclaw_memory_prepare_workspace
+		openclaw memory index --force
+		echo "✅ Local 自动部署完成"
+	}
+
+	openclaw_memory_auto_setup_run() {
+		local scheme="$1"
+		local scheme_label
+		OPENCLAW_MEMORY_QMD_PATH=""
+		OPENCLAW_MEMORY_MODEL_PATH=""
+		openclaw_memory_detect_region
+		openclaw_memory_select_sources
+		if [ "$scheme" = "auto" ]; then
+			openclaw_memory_recommend
+			scheme="$OPENCLAW_MEMORY_RECOMMEND"
+		fi
+		case "$scheme" in
+			qmd) scheme_label="QMD" ;;
+			local) scheme_label="Local" ;;
+			*)
+				echo "❌ 未知方案: $scheme"
+				return 1
+				;;
+		esac
+		OPENCLAW_MEMORY_AUTO_SCHEME="$scheme_label"
+		openclaw_memory_auto_confirm "$scheme_label" || return 0
+		case "$scheme" in
+			qmd) openclaw_memory_auto_setup_qmd || return 1 ;;
+			local) openclaw_memory_auto_setup_local || return 1 ;;
+			*) return 1 ;;
+		esac
+		openclaw_memory_render_auto_summary
+		return 0
+	}
+
+	openclaw_memory_auto_setup_menu() {
+		while true; do
+			clear
+			echo "======================================="
+			echo "记忆方案自动部署"
+			echo "======================================="
+			echo "1. QMD"
+			echo "2. Local"
+			echo "3. Auto（自动选择）"
+			echo "0. 返回上一级"
+			echo "---------------------------------------"
+			read -e -p "请输入你的选择: " auto_choice
+			case "$auto_choice" in
+				1)
+					openclaw_memory_auto_setup_run "qmd"
+					break_end
+					;;
+				2)
+					openclaw_memory_auto_setup_run "local"
+					break_end
+					;;
+				3)
+					openclaw_memory_auto_setup_run "auto"
+					break_end
+					;;
+				0)
+					return 0
+					;;
+				*)
+					echo "无效的选择，请重试。"
+					sleep 1
+					;;
+			esac
+		done
+	}
+
 	openclaw_memory_apply_scheme() {
 		local scheme="$1"
-		local config_file
-		config_file=$(openclaw_memory_config_file)
-		if [ ! -f "$config_file" ]; then
-			echo "❌ 未找到配置文件: $config_file"
-			return 1
-		fi
-		python3 - "$config_file" "$scheme" <<'PY'
-import json,sys
-path = sys.argv[1]
-scheme = sys.argv[2]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-mem = data.setdefault('memory', {})
-if scheme == 'qmd':
-    mem['backend'] = 'qmd'
-    qmd = mem.setdefault('qmd', {})
-    qmd.setdefault('command', 'qmd')
-elif scheme == 'local':
-    mem['backend'] = 'local'
-    agents = data.setdefault('agents', {})
-    defaults = agents.setdefault('defaults', {})
-    memory_search = defaults.setdefault('memorySearch', {})
-    memory_search['provider'] = 'local'
-else:
-    raise SystemExit(2)
-with open(path, 'w', encoding='utf-8') as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-    f.write('\n')
-PY
-		if [ $? -ne 0 ]; then
-			echo "❌ 写入配置失败"
-			return 1
-		fi
+		case "$scheme" in
+			qmd)
+				openclaw_memory_config_set "memory.backend" "qmd"
+				if [ $? -ne 0 ]; then
+					echo "❌ 写入配置失败"
+					return 1
+				fi
+				openclaw_memory_config_set "memory.qmd.command" "qmd" >/dev/null 2>&1
+				;;
+			local)
+				openclaw_memory_config_set "memory.backend" "local"
+				if [ $? -ne 0 ]; then
+					echo "❌ 写入配置失败"
+					return 1
+				fi
+				openclaw_memory_config_set "agents.defaults.memorySearch.provider" "local" >/dev/null 2>&1
+				;;
+			*)
+				echo "❌ 未知方案: $scheme"
+				return 1
+			esac
 		echo "✅ 已更新记忆方案配置"
 		return 0
 	}
@@ -13042,12 +13365,11 @@ PY
 	}
 
 	openclaw_memory_fix_index() {
-		local config_file
-		config_file=$(openclaw_memory_config_file)
-		if [ ! -f "$config_file" ]; then
-			echo "❌ 未找到配置文件: $config_file"
-			break_end
-			return 1
+		local backend
+		backend=$(openclaw_memory_get_backend)
+		if [ "$backend" = "qmd" ] && ! command -v qmd >/dev/null 2>&1; then
+			echo "⚠️ 检测到当前方案为 QMD，但未安装 qmd 命令。"
+			echo "   可切换 Local，或安装 bun + qmd 后再试。"
 		fi
 		echo "适用场景：Indexed 分子 > 分母（重复 collection 导致计数异常）"
 		read -e -p "确认将 includeDefaultMemory 设为 false？(y/N): " confirm_fix
@@ -13056,30 +13378,17 @@ PY
 			break_end
 			return 0
 		fi
-		python3 - "$config_file" <<'PY'
-import json,sys
-path = sys.argv[1]
-with open(path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-mem = data.setdefault('memory', {})
-qmd = mem.setdefault('qmd', {})
-qmd['includeDefaultMemory'] = False
-with open(path, 'w', encoding='utf-8') as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-    f.write('\n')
-PY
+		openclaw_memory_config_set "memory.qmd.includeDefaultMemory" false
 		if [ $? -ne 0 ]; then
 			echo "❌ 写入配置失败"
 			break_end
 			return 1
 		fi
 		echo "✅ 已设置 includeDefaultMemory=false"
-		echo "建议立即执行：openclaw memory index --force"
-		read -e -p "是否立即执行 openclaw memory index --force？(Y/n): " rebuild_choice
+		echo "推荐执行：清理并重建索引"
+		read -e -p "是否执行清理并重建索引（推荐）？(Y/n): " rebuild_choice
 		if [[ ! "$rebuild_choice" =~ ^[Nn]$ ]]; then
-			openclaw memory index --force
-			echo ""
-			openclaw_memory_render_status
+			openclaw_memory_rebuild_index_safe
 		else
 			echo "可稍后在记忆管理中查看状态。"
 		fi
@@ -13105,14 +13414,18 @@ PY
 			echo "Local: 本地向量检索，依赖 embedding 模型文件"
 			echo "Auto : 自动推荐（基于可用性 + 网络探测）"
 			echo "---------------------------------------"
-			echo "1. 自动推荐并应用"
-			echo "2. 手动选择 QMD"
-			echo "3. 手动选择 Local"
+			echo "1. 切换并自动部署（推荐）"
+			echo "2. 自动推荐并应用（仅写配置）"
+			echo "3. 手动选择 QMD"
+			echo "4. 手动选择 Local"
 			echo "0. 返回上一级"
 			echo "---------------------------------------"
 			read -e -p "请输入你的选择: " scheme_choice
 			case "$scheme_choice" in
 				1)
+					openclaw_memory_auto_setup_menu
+					;;
+				2)
 					openclaw_memory_recommend
 					local recommend_label
 					if [ "$OPENCLAW_MEMORY_RECOMMEND" = "qmd" ]; then
@@ -13134,12 +13447,12 @@ PY
 					openclaw_memory_offer_restart
 					break_end
 					;;
-				2)
+				3)
 					openclaw_memory_apply_scheme "qmd" || { break_end; continue; }
 					openclaw_memory_offer_restart
 					break_end
 					;;
-				3)
+				4)
 					openclaw_memory_apply_scheme "local" || { break_end; continue; }
 					openclaw_memory_offer_restart
 					break_end
@@ -13290,13 +13603,21 @@ PY
 						break_end
 						continue
 					fi
-					read -e -p "二次确认：输入 force 使用全量（留空为增量）: " confirm_step2
-					if [ "$confirm_step2" = "force" ]; then
-						openclaw memory index --force
+				openclaw_memory_prepare_workspace
+				read -e -p "二次确认：输入 force 使用全量（留空为增量）: " confirm_step2
+				if [ "$confirm_step2" = "force" ]; then
+					echo "⚠️ 全量重建更彻底，但耗时更长。"
+					echo "推荐：输入 rebuild 进行安全重建（先备份索引库）。"
+					read -e -p "第三次确认：输入 rebuild 执行安全重建；直接回车继续普通 force: " confirm_step3
+					if [ "$confirm_step3" = "rebuild" ]; then
+						openclaw_memory_rebuild_index_safe
 					else
-						openclaw memory index
+						openclaw memory index --force
 					fi
-					break_end
+				else
+					openclaw memory index
+				fi
+				break_end
 					;;
 				2)
 					openclaw_memory_files_menu
