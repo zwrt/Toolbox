@@ -10674,7 +10674,11 @@ PY
 			[[ $first == false ]] && models_array+=","
 			first=false
 
-			# 移除显式注入的 contextWindow 和 maxTokens，让 OpenClaw 采用 provider/默认策略
+			# context 和 max_tokens 全拉满，不怕大
+			local context_window=1048576
+			local max_tokens=128000
+
+			# 只有价格需要分级
 			local input_cost=0.15
 			local output_cost=0.60
 
@@ -10698,6 +10702,8 @@ PY
 	"id": "$model_id",
 	"name": "$provider_name / $model_id",
 	"input": ["text", "image"],
+	"contextWindow": $context_window,
+	"maxTokens": $max_tokens,
 	"cost": {
 		"input": $input_cost,
 		"output": $output_cost,
