@@ -12,7 +12,7 @@ gl_zi='\033[35m'
 gl_kjlan='\033[96m'
 
 
-canshu="default"
+canshu="CN"
 permission_granted="false"
 ENABLE_STATS="true"
 
@@ -10528,52 +10528,20 @@ PY
 	# OpenClaw API 协议探测逻辑已移除：不再自动探测/判定 API 类型。
 	# 说明：API 类型由用户显式配置（models.providers.<name>.api），脚本不再尝试调用 /responses 做推断。
 
-	# 核心函数：获取并添加所有模型
-	add-all-models-from-provider() {
+	# 构造模型配置 JSON
+	build-openclaw-provider-models-json() {
 		local provider_name="$1"
-		local base_url="$2"
-		local api_key="$3"
-		local config_file="${HOME}/.openclaw/openclaw.json"
-
-		echo "🔍 正在获取 $provider_name 的所有可用模型..."
-
-		# 不再自动探测/纠正 API 协议；保持用户配置为准
-		DETECTED_API="openai-completions"
-
-		# 获取模型列表
-		local models_json=$(curl -s -m 10 \
-			-H "Authorization: Bearer $api_key" \
-			"${base_url}/models")
-
-		if [[ -z "$models_json" ]]; then
-			echo "❌ 无法获取模型列表"
-			return 1
-		fi
-
-		# 提取所有模型ID
-		local model_ids=$(echo "$models_json" | grep -oP '"id":\s*"\K[^"]+')
-
-		if [[ -z "$model_ids" ]]; then
-			echo "❌ 未找到任何模型"
-			return 1
-		fi
-
-		local model_count=$(echo "$model_ids" | wc -l)
-		echo "✅ 发现 $model_count 个模型"
-
-		# 智能推断模型参数
+		local model_ids="$2"
 		local models_array="["
 		local first=true
 
 		while read -r model_id; do
+			[ -z "$model_id" ] && continue
 			[[ $first == false ]] && models_array+=","
 			first=false
 
-			# context 和 max_tokens 全拉满，不怕大
 			local context_window=1048576
 			local max_tokens=128000
-
-			# 只有价格需要分级
 			local input_cost=0.15
 			local output_cost=0.60
 
@@ -10611,11 +10579,22 @@ EOF
 		done <<< "$model_ids"
 
 		models_array+="]"
+		echo "$models_array"
+	}
 
-		# 备份配置
+	# 写入 provider 与模型配置
+	write-openclaw-provider-models() {
+		local provider_name="$1"
+		local base_url="$2"
+		local api_key="$3"
+		local models_array="$4"
+		local config_file="${HOME}/.openclaw/openclaw.json"
+
+		# 不再自动探测/纠正 API 协议；保持用户配置为准
+		DETECTED_API="openai-completions"
+
 		[[ -f "$config_file" ]] && cp "$config_file" "${config_file}.bak.$(date +%s)"
 
-		# 使用jq注入所有模型，并同步 defaults.models
 		jq --arg prov "$provider_name" \
 		   --arg url "$base_url" \
 		   --arg key "$api_key" \
@@ -10649,10 +10628,70 @@ EOF
 			)
 		)
 		' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+	}
+
+	# 核心函数：获取并添加所有模型
+	add-all-models-from-provider() {
+		local provider_name="$1"
+		local base_url="$2"
+		local api_key="$3"
+
+		echo "🔍 正在获取 $provider_name 的所有可用模型..."
+
+		local models_json=$(curl -s -m 10 \
+			-H "Authorization: Bearer $api_key" \
+			"${base_url}/models")
+
+		if [[ -z "$models_json" ]]; then
+			echo "❌ 无法获取模型列表"
+			return 1
+		fi
+
+		local model_ids=$(echo "$models_json" | grep -oP '"id":\s*"\K[^"]+')
+
+		if [[ -z "$model_ids" ]]; then
+			echo "❌ 未找到任何模型"
+			return 1
+		fi
+
+		local model_count=$(echo "$model_ids" | wc -l)
+		echo "✅ 发现 $model_count 个模型"
+
+		local models_array
+		models_array=$(build-openclaw-provider-models-json "$provider_name" "$model_ids")
+
+		write-openclaw-provider-models "$provider_name" "$base_url" "$api_key" "$models_array"
 
 		if [[ $? -eq 0 ]]; then
 			echo "✅ 成功添加 $model_count 个模型到 $provider_name"
 			echo "📦 模型引用格式: $provider_name/<model-id>"
+			return 0
+		else
+			echo "❌ 配置注入失败"
+			return 1
+		fi
+	}
+
+	# 仅添加默认模型并保留 provider
+	add-default-model-only-to-provider() {
+		local provider_name="$1"
+		local base_url="$2"
+		local api_key="$3"
+		local default_model="$4"
+
+		if [[ -z "$default_model" ]]; then
+			echo "❌ 默认模型不能为空"
+			return 1
+		fi
+
+		local models_array
+		models_array=$(build-openclaw-provider-models-json "$provider_name" "$default_model")
+
+		write-openclaw-provider-models "$provider_name" "$base_url" "$api_key" "$models_array"
+
+		if [[ $? -eq 0 ]]; then
+			echo "✅ 已添加 provider：$provider_name"
+			echo "✅ 仅写入默认模型：$default_model"
 			return 0
 		else
 			echo "❌ 配置注入失败"
@@ -10739,22 +10778,26 @@ EOF
 		echo "模型总数    : $model_count"
 		echo "======================"
 
-		read -erp "确认添加所有 $model_count 个模型？(y/N): " confirm
-		if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-			echo "❎ 已取消"
-			return 1
-		fi
+		read -erp "是否同时添加其他所有可用模型？(y/N): " confirm
 
 		install jq
-		add-all-models-from-provider "$provider_name" "$base_url" "$api_key"
+		if [[ "$confirm" =~ ^[Yy]$ ]]; then
+			add-all-models-from-provider "$provider_name" "$base_url" "$api_key"
+			add_result=$?
+			finish_msg="✅ 完成！所有 $model_count 个模型已加载"
+		else
+			add-default-model-only-to-provider "$provider_name" "$base_url" "$api_key" "$default_model"
+			add_result=$?
+			finish_msg="✅ 完成！已保留 provider，并仅加载默认模型：$default_model"
+		fi
 
-		if [[ $? -eq 0 ]]; then
+		if [[ $add_result -eq 0 ]]; then
 			echo
 			echo "🔄 设置默认模型并重启网关..."
 			openclaw models set "$provider_name/$default_model"
 			start_gateway
-			echo "✅ 完成！所有 $model_count 个模型已加载"
-			echo "✅ 已自动识别协议为: $DETECTED_API"
+			echo "$finish_msg"
+			echo "✅ 当前 API 协议类型: $DETECTED_API"
 		fi
 
 		break_end
@@ -11441,10 +11484,189 @@ REPO
 
 		local orange="#FF8C00"
 
+		openclaw_model_probe() {
+			local target_model="$1"
+			local probe_timeout=25
+			local tmp_payload tmp_response http_code curl_exit latency_ms reply_preview reply_trimmed
+			local oc_config provider_name base_url api_key request_model
+
+			oc_config="${HOME}/.openclaw/openclaw.json"
+			[ ! -f "$oc_config" ] && [ -f /root/.openclaw/openclaw.json ] && oc_config="/root/.openclaw/openclaw.json"
+			[ ! -f "$oc_config" ] && {
+				OPENCLAW_PROBE_STATUS="ERROR"
+				OPENCLAW_PROBE_MESSAGE="未找到 openclaw 配置文件"
+				OPENCLAW_PROBE_LATENCY="-"
+				OPENCLAW_PROBE_REPLY="-"
+				return 1
+			}
+
+			provider_name="${target_model%%/*}"
+			request_model="${target_model#*/}"
+			base_url=$(jq -r --arg provider "$provider_name" '.models.providers[$provider].baseUrl // empty' "$oc_config" 2>/dev/null)
+			api_key=$(jq -r --arg provider "$provider_name" '.models.providers[$provider].apiKey // empty' "$oc_config" 2>/dev/null)
+			if [ -z "$provider_name" ] || [ -z "$base_url" ] || [ -z "$api_key" ]; then
+				OPENCLAW_PROBE_STATUS="ERROR"
+				OPENCLAW_PROBE_MESSAGE="未读取到 provider/baseUrl/apiKey"
+				OPENCLAW_PROBE_LATENCY="-"
+				OPENCLAW_PROBE_REPLY="-"
+				return 1
+			fi
+
+			base_url="${base_url%/}"
+			tmp_payload=$(mktemp)
+			tmp_response=$(mktemp)
+			printf '{"model":"%s","messages":[{"role":"user","content":"hi"}],"temperature":0,"max_tokens":16}' "$request_model" > "$tmp_payload"
+
+			latency_ms=$(python3 - "$base_url" "$api_key" "$tmp_payload" "$tmp_response" "$probe_timeout" <<'PYTHON_EOF'
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+base_url, api_key, payload_path, response_path, timeout = sys.argv[1:6]
+timeout = int(timeout)
+url = base_url + '/chat/completions'
+payload = open(payload_path, 'rb').read()
+req = urllib.request.Request(
+    url,
+    data=payload,
+    headers={
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+    },
+    method='POST',
+)
+start = time.time()
+body = b''
+status = 0
+exit_code = 0
+try:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        status = getattr(resp, 'status', 200)
+        body = resp.read()
+except urllib.error.HTTPError as e:
+    status = getattr(e, 'code', 0) or 0
+    body = e.read()
+    exit_code = 22
+except Exception as e:
+    body = str(e).encode('utf-8', errors='replace')
+    exit_code = 1
+elapsed = int((time.time() - start) * 1000)
+with open(response_path, 'wb') as f:
+    f.write(body)
+print(f"{exit_code}|{status}|{elapsed}")
+PYTHON_EOF
+)
+			curl_exit=${latency_ms%%|*}
+			http_code=${latency_ms#*|}
+			http_code=${http_code%%|*}
+			latency_ms=${latency_ms##*|}
+
+			reply_preview=$(python3 - "$tmp_response" <<'PYTHON_EOF'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+raw = path.read_text(encoding='utf-8', errors='replace').strip()
+reply = ''
+if raw:
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            choices = data.get('choices') or []
+            if choices and isinstance(choices[0], dict):
+                message = choices[0].get('message') or {}
+                if isinstance(message, dict):
+                    reply = message.get('content') or ''
+            if not reply:
+                for key in ('error', 'message', 'detail'):
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        reply = value.strip()
+                        break
+                    if isinstance(value, dict):
+                        nested = value.get('message')
+                        if isinstance(nested, str) and nested.strip():
+                            reply = nested.strip()
+                            break
+    except Exception:
+        reply = raw
+reply = ' '.join(str(reply).split())
+print(reply)
+PYTHON_EOF
+)
+			rm -f "$tmp_payload" "$tmp_response"
+
+			reply_trimmed=$(printf '%s' "$reply_preview" | cut -c1-120)
+			[ -z "$reply_trimmed" ] && reply_trimmed="(空返回)"
+
+			if [ "$curl_exit" = "0" ] && [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+				OPENCLAW_PROBE_STATUS="OK"
+				OPENCLAW_PROBE_MESSAGE="HTTP ${http_code}"
+				OPENCLAW_PROBE_LATENCY="${latency_ms}ms"
+				OPENCLAW_PROBE_REPLY="$reply_trimmed"
+				return 0
+			fi
+
+			OPENCLAW_PROBE_STATUS="FAIL"
+			OPENCLAW_PROBE_MESSAGE="HTTP ${http_code:-0} / exit ${curl_exit:-1}"
+			OPENCLAW_PROBE_LATENCY="${latency_ms:-?}ms"
+			OPENCLAW_PROBE_REPLY="$reply_trimmed"
+			return 1
+		}
+
+		openclaw_confirm_switch() {
+			local current_choice="yes"
+			local first_key rest_key
+			while true; do
+				clear
+				echo "是否切换到该模型？"
+				echo "使用 ← / → 切换，Enter 确认，Esc 返回列表"
+				echo ""
+				if [ "$current_choice" = "yes" ]; then
+					echo "> [ yes ]    no"
+				else
+					echo "  yes    [ no ]"
+				fi
+				IFS= read -rsn1 first_key
+				if [ -z "$first_key" ]; then
+					OPENCLAW_CONFIRM_SWITCH="$current_choice"
+					return 0
+				fi
+				case "$first_key" in
+					$'')
+						IFS= read -rsn2 -t 0.1 rest_key
+						case "$rest_key" in
+							'[D'|'[C')
+								if [ "$current_choice" = "yes" ]; then
+									current_choice="no"
+								else
+									current_choice="yes"
+								fi
+								;;
+							'')
+								OPENCLAW_CONFIRM_SWITCH="no"
+								return 0
+								;;
+						esac
+						;;
+					[hHlL])
+						if [ "$current_choice" = "yes" ]; then
+							current_choice="no"
+						else
+							current_choice="yes"
+						fi
+						;;
+				esac
+				done
+		}
+
 		clear
 
 		while true; do
-			local models_raw models_list default_model model_count selected_model
+			local models_raw models_list default_model model_count selected_model confirm_switch
 
 			# 从配置文件读取模型键（不调用 openclaw models list）
 			local oc_config
@@ -11466,53 +11688,53 @@ REPO
 			default_model=$(jq -r '.agents.defaults.model.primary // empty' "$oc_config" 2>/dev/null)
 			[ -z "$default_model" ] && default_model="(unknown)"
 
-
-			install_gum
-			install gum
-
 			clear
 
-				# 若 gum 不存在，降级为原始手动输入流程（保持与之前完全一致）
-			if ! command -v gum >/dev/null 2>&1; then
+			# 若 gum 不存在，降级为原始手动输入流程
+			if ! command -v gum >/dev/null 2>&1 || ! gum --version >/dev/null 2>&1; then
 				echo "--- 模型管理 ---"
 				echo "当前可用模型:"
 				jq -r '.agents.defaults.models | if type == "object" then keys[] else .[] end' "$oc_config" 2>/dev/null | sed '/^\s*$/d'
 				echo "----------------"
 				read -e -p "请输入要设置的模型名称 (例如 openrouter/openai/gpt-4o)（输入 0 退出）： " selected_model
 
-				# 1. 检查是否输入 0 以退出
 				if [ "$selected_model" = "0" ]; then
 					echo "操作已取消，正在退出..."
-					break  # 跳出 while 循环
+					break
 				fi
 
-				# 2. 验证输入是否为空
 				if [ -z "$selected_model" ]; then
 					echo "错误：模型名称不能为空。请重试。"
-					echo "" # 换行美化
-					continue # 跳过本次循环，重新开始
+					echo ""
+					continue
 				fi
+
+				echo "正在切换模型为: $selected_model ..."
+				if ! openclaw models set "$selected_model"; then
+					echo "切换失败：openclaw models set 返回错误。"
+					break_end
+					return 1
+				fi
+				start_gateway
+
+				break_end
+				return 0
 			else
+				install_gum
+				install gum
+				if ! command -v gum >/dev/null 2>&1 || ! gum --version >/dev/null 2>&1; then
+					echo "gum 安装失败，返回旧版输入模式。"
+					sleep 1
+					continue
+				fi
 				gum style --foreground "$orange" --bold "模型管理"
 				gum style --foreground "$orange" "可用模型（Auth=yes）：${model_count}"
 				gum style --foreground "$orange" "当前默认：${default_model}"
 				echo ""
-
-				# 底部提示
-				gum style --faint "↑↓ 选择 / Enter 确认 / Esc 退出"
+				gum style --faint "↑↓ 选择 / Enter 测试 / Esc 退出"
 				echo ""
 
-				# gum filter：带搜索；gum 版本差异较大，这里只用兼容性最强的 flags
-				selected_model=$(echo "$models_list" | gum filter \
-					--placeholder "搜索模型（如 cli-api/gpt-5.2）" \
-					--prompt "选择模型 > " \
-					--indicator "➜ " \
-					--prompt.foreground "$orange" \
-					--indicator.foreground "$orange" \
-					--cursor-text.foreground "$orange" \
-					--match.foreground "$orange" \
-					--header "" \
-					--height 35)
+				selected_model=$(echo "$models_list" | gum filter 					--placeholder "搜索模型（如 cli-api/gpt-5.2）" 					--prompt "选择模型 > " 					--indicator "➜ " 					--prompt.foreground "$orange" 					--indicator.foreground "$orange" 					--cursor-text.foreground "$orange" 					--match.foreground "$orange" 					--header "" 					--height 35)
 
 				if [ -z "$selected_model" ] || echo "$selected_model" | head -n 1 | grep -iqE '^(error|usage|gum:)'; then
 					echo "操作已取消，正在退出..."
@@ -11520,10 +11742,39 @@ REPO
 				fi
 			fi
 
-			# 去掉编号前缀："(10) model" -> "model"
 			selected_model=$(echo "$selected_model" | sed -E 's/^\([0-9]+\)[[:space:]]+//')
 
-			# 执行切换
+			echo ""
+			echo "正在检测模型: $selected_model"
+			if openclaw_model_probe "$selected_model"; then
+				green "最小检测结果：可用"
+			else
+				red "最小检测结果：不可用"
+			fi
+			echo "返回状态：$OPENCLAW_PROBE_MESSAGE"
+			echo "响应延迟：$OPENCLAW_PROBE_LATENCY"
+			echo "返回摘要：$OPENCLAW_PROBE_REPLY"
+			echo ""
+
+			if command -v gum >/dev/null 2>&1 && gum --version >/dev/null 2>&1; then
+				OPENCLAW_CONFIRM_SWITCH=""
+				openclaw_confirm_switch
+				confirm_switch="$OPENCLAW_CONFIRM_SWITCH"
+				[ -z "$confirm_switch" ] && confirm_switch="no"
+			else
+				read -e -p "是否切换到该模型？[yes/NO]: " confirm_switch
+				case "$confirm_switch" in
+					[yY][eE][sS]|[yY]) confirm_switch="yes" ;;
+					*) confirm_switch="no" ;;
+				esac
+			fi
+
+			if [ "$confirm_switch" != "yes" ]; then
+				echo "已返回模型选择列表。"
+				sleep 1
+				continue
+			fi
+
 			echo "正在切换模型为: $selected_model ..."
 			if ! openclaw models set "$selected_model"; then
 				echo "切换失败：openclaw models set 返回错误。"
@@ -11534,7 +11785,7 @@ REPO
 
 			break_end
 			done
-	}
+		}
 
 
 		resolve_openclaw_plugin_id() {
