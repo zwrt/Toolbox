@@ -11484,11 +11484,25 @@ REPO
 
 		local orange="#FF8C00"
 
+		openclaw_probe_status_line() {
+			local status_text="$1"
+			local status_color_ok='[32m'
+			local status_color_fail='[31m'
+			local status_color_reset='[0m'
+			if [ "$status_text" = "可用" ]; then
+				printf "%b最小检测结果：%s%b
+" "$status_color_ok" "$status_text" "$status_color_reset"
+			else
+				printf "%b最小检测结果：%s%b
+" "$status_color_fail" "$status_text" "$status_color_reset"
+			fi
+		}
+
 		openclaw_model_probe() {
 			local target_model="$1"
 			local probe_timeout=25
 			local tmp_payload tmp_response http_code curl_exit latency_ms reply_preview reply_trimmed
-			local oc_config provider_name base_url api_key request_model
+			local oc_config provider_name base_url api_key request_model api_endpoint payload_body probe_mode primary_mode fallback_mode
 
 			oc_config="${HOME}/.openclaw/openclaw.json"
 			[ ! -f "$oc_config" ] && [ -f /root/.openclaw/openclaw.json ] && oc_config="/root/.openclaw/openclaw.json"
@@ -11513,11 +11527,25 @@ REPO
 			fi
 
 			base_url="${base_url%/}"
-			tmp_payload=$(mktemp)
-			tmp_response=$(mktemp)
-			printf '{"model":"%s","messages":[{"role":"user","content":"hi"}],"temperature":0,"max_tokens":16}' "$request_model" > "$tmp_payload"
+			primary_mode="chat"
+			fallback_mode="responses"
 
-			latency_ms=$(python3 - "$base_url" "$api_key" "$tmp_payload" "$tmp_response" "$probe_timeout" <<'PYTHON_EOF'
+			openclaw_prepare_probe_payload() {
+				probe_mode="$1"
+				if [ "$probe_mode" = "responses" ]; then
+					api_endpoint="/responses"
+					payload_body=$(printf '{"model":"%s","input":"hi","max_output_tokens":16}' "$request_model")
+				else
+					api_endpoint="/chat/completions"
+					payload_body=$(printf '{"model":"%s","messages":[{"role":"user","content":"hi"}],"temperature":0,"max_tokens":16}' "$request_model")
+				fi
+				tmp_payload=$(mktemp)
+				tmp_response=$(mktemp)
+				printf '%s' "$payload_body" > "$tmp_payload"
+			}
+
+						openclaw_run_probe_request() {
+				latency_ms=$(OPENCLAW_PROBE_ENDPOINT="$api_endpoint" python3 - "$base_url" "$api_key" "$tmp_payload" "$tmp_response" "$probe_timeout" <<'PYTHON_EOF'
 import json
 import os
 import sys
@@ -11527,7 +11555,8 @@ import urllib.request
 
 base_url, api_key, payload_path, response_path, timeout = sys.argv[1:6]
 timeout = int(timeout)
-url = base_url + '/chat/completions'
+api_endpoint = os.environ.get('OPENCLAW_PROBE_ENDPOINT', '/chat/completions')
+url = base_url + api_endpoint
 payload = open(payload_path, 'rb').read()
 req = urllib.request.Request(
     url,
@@ -11559,12 +11588,12 @@ with open(response_path, 'wb') as f:
 print(f"{exit_code}|{status}|{elapsed}")
 PYTHON_EOF
 )
-			curl_exit=${latency_ms%%|*}
-			http_code=${latency_ms#*|}
-			http_code=${http_code%%|*}
-			latency_ms=${latency_ms##*|}
+				curl_exit=${latency_ms%%|*}
+				http_code=${latency_ms#*|}
+				http_code=${http_code%%|*}
+				latency_ms=${latency_ms##*|}
 
-			reply_preview=$(python3 - "$tmp_response" <<'PYTHON_EOF'
+				reply_preview=$(python3 - "$tmp_response" <<'PYTHON_EOF'
 import json
 import sys
 from pathlib import Path
@@ -11580,6 +11609,25 @@ if raw:
                 message = choices[0].get('message') or {}
                 if isinstance(message, dict):
                     reply = message.get('content') or ''
+            if not reply:
+                output = data.get('output') or []
+                if isinstance(output, list):
+                    chunks = []
+                    for item in output:
+                        if not isinstance(item, dict):
+                            continue
+                        content = item.get('content') or []
+                        if isinstance(content, list):
+                            for part in content:
+                                if isinstance(part, dict):
+                                    txt = part.get('text') or part.get('content') or ''
+                                    if isinstance(txt, str) and txt.strip():
+                                        chunks.append(txt.strip())
+                        txt = item.get('text') or ''
+                        if isinstance(txt, str) and txt.strip():
+                            chunks.append(txt.strip())
+                    if chunks:
+                        reply = ' '.join(chunks)
             if not reply:
                 for key in ('error', 'message', 'detail'):
                     value = data.get(key)
@@ -11597,6 +11645,15 @@ reply = ' '.join(str(reply).split())
 print(reply)
 PYTHON_EOF
 )
+				rm -f "$tmp_payload" "$tmp_response"
+			}
+
+			openclaw_prepare_probe_payload "$primary_mode"
+			openclaw_run_probe_request
+			if ! { [ "$curl_exit" = "0" ] && [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; }; then
+				openclaw_prepare_probe_payload "$fallback_mode"
+				openclaw_run_probe_request
+			fi
 			rm -f "$tmp_payload" "$tmp_response"
 
 			reply_trimmed=$(printf '%s' "$reply_preview" | cut -c1-120)
@@ -11615,52 +11672,6 @@ PYTHON_EOF
 			OPENCLAW_PROBE_LATENCY="${latency_ms:-?}ms"
 			OPENCLAW_PROBE_REPLY="$reply_trimmed"
 			return 1
-		}
-
-		openclaw_confirm_switch() {
-			local current_choice="yes"
-			local first_key rest_key
-			while true; do
-				clear
-				echo "是否切换到该模型？"
-				echo "使用 ← / → 切换，Enter 确认，Esc 返回列表"
-				echo ""
-				if [ "$current_choice" = "yes" ]; then
-					echo "> [ yes ]    no"
-				else
-					echo "  yes    [ no ]"
-				fi
-				IFS= read -rsn1 first_key
-				if [ -z "$first_key" ]; then
-					OPENCLAW_CONFIRM_SWITCH="$current_choice"
-					return 0
-				fi
-				case "$first_key" in
-					$'')
-						IFS= read -rsn2 -t 0.1 rest_key
-						case "$rest_key" in
-							'[D'|'[C')
-								if [ "$current_choice" = "yes" ]; then
-									current_choice="no"
-								else
-									current_choice="yes"
-								fi
-								;;
-							'')
-								OPENCLAW_CONFIRM_SWITCH="no"
-								return 0
-								;;
-						esac
-						;;
-					[hHlL])
-						if [ "$current_choice" = "yes" ]; then
-							current_choice="no"
-						else
-							current_choice="yes"
-						fi
-						;;
-				esac
-				done
 		}
 
 		clear
@@ -11723,7 +11734,7 @@ PYTHON_EOF
 				install_gum
 				install gum
 				if ! command -v gum >/dev/null 2>&1 || ! gum --version >/dev/null 2>&1; then
-					echo "gum 安装失败，返回旧版输入模式。"
+					echo "gum 不可用，返回旧版输入模式。"
 					sleep 1
 					continue
 				fi
@@ -11747,24 +11758,27 @@ PYTHON_EOF
 			echo ""
 			echo "正在检测模型: $selected_model"
 			if openclaw_model_probe "$selected_model"; then
-				green "最小检测结果：可用"
+				openclaw_probe_status_line "可用"
 			else
-				red "最小检测结果：不可用"
+				openclaw_probe_status_line "不可用"
 			fi
-			echo "返回状态：$OPENCLAW_PROBE_MESSAGE"
-			echo "响应延迟：$OPENCLAW_PROBE_LATENCY"
-			echo "返回摘要：$OPENCLAW_PROBE_REPLY"
+			echo "状态：$OPENCLAW_PROBE_MESSAGE"
+			echo "延迟：$OPENCLAW_PROBE_LATENCY"
+			echo "摘要：$OPENCLAW_PROBE_REPLY"
 			echo ""
 
-			if command -v gum >/dev/null 2>&1 && gum --version >/dev/null 2>&1; then
-				OPENCLAW_CONFIRM_SWITCH=""
-				openclaw_confirm_switch
-				confirm_switch="$OPENCLAW_CONFIRM_SWITCH"
-				[ -z "$confirm_switch" ] && confirm_switch="no"
+			printf "是否切换到该模型？[y/N，Esc 返回列表]: "
+			IFS= read -rsn1 confirm_switch
+			echo ""
+			if [ "$confirm_switch" = $'' ]; then
+				confirm_switch="no"
 			else
-				read -e -p "是否切换到该模型？[yes/NO]: " confirm_switch
 				case "$confirm_switch" in
-					[yY][eE][sS]|[yY]) confirm_switch="yes" ;;
+					[yY])
+						IFS= read -rsn1 -t 5 _enter_key
+						confirm_switch="yes"
+						;;
+					[nN]|"") confirm_switch="no" ;;
 					*) confirm_switch="no" ;;
 				esac
 			fi
