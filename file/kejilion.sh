@@ -21286,6 +21286,10 @@ else
 			disk_manager
 			;;
 
+		claw|oc|OpenClaw)
+			moltbot_menu
+			;;
+
 		wp|wordpress)
 			shift
 			ldnmp_wp "$@"
