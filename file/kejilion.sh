@@ -12597,147 +12597,81 @@ EOF
 		return 0
 	}
 
-	
+	openclaw_get_all_agent_workspaces() {
+		local config_file="${HOME}/.openclaw/openclaw.json"
+		if [ -f "$config_file" ]; then
+			python3 - "$config_file" <<'PY'
+import json, sys, os
+try:
+    with open(sys.argv[1]) as f: data = json.load(f)
+    agents = data.get("agents", {}).get("list", [])
+    results = [{"id": "main", "ws": os.path.expanduser("~/.openclaw/workspace")}]
+    for a in agents:
+        aid = a.get("id"); ws = a.get("workspace")
+        if aid and ws and aid != "main": results.append({"id": aid, "ws": os.path.expanduser(ws)})
+    print(json.dumps(results))
+except: print("[]")
+PY
+		else
+			echo '[{"id": "main", "ws": "'"${HOME}"'/.openclaw/workspace"}]'
+		fi
+	}
+
 	openclaw_memory_backup_export() {
-		send_stats "OpenClaw记忆全量备份-多智能体版"
+		send_stats "OpenClaw记忆全量备份"
 		local backup_root=$(openclaw_backup_root)
 		local ts=$(date +%Y%m%d-%H%M%S)
 		local out_file="$backup_root/openclaw-memory-full-${ts}.tar.gz"
 		mkdir -p "$backup_root"
-
 		local tmp_payload=$(mktemp -d) || return 1
 		local workspaces_json=$(openclaw_get_all_agent_workspaces)
-		
-		# 遍历所有智能体
 		python3 -c "import json, sys, os, shutil; 
-workspaces = json.loads(sys.argv[1]); 
-tmp_payload = sys.argv[2];
+workspaces = json.loads(sys.argv[1]); tmp_payload = sys.argv[2]
 for item in workspaces:
     aid = item['id']; ws = item['ws']
     if not os.path.isdir(ws): continue
     target_dir = os.path.join(tmp_payload, 'agents', aid)
     os.makedirs(target_dir, exist_ok=True)
-    # 核心记忆
     for f in ['MEMORY.md', 'memory']:
         src = os.path.join(ws, f)
         if os.path.exists(src):
             if os.path.isfile(src): shutil.copy2(src, target_dir)
             else: shutil.copytree(src, os.path.join(target_dir, f), dirs_exist_ok=True)
 " "$workspaces_json" "$tmp_payload"
-
 		if ! find "$tmp_payload" -mindepth 1 -print -quit | grep -q .; then
-			echo "❌ 未找到可备份的记忆文件"
-			rm -rf "$tmp_payload"
-			break_end; return 1
+			echo "❌ 未找到可备份的记忆文件"; rm -rf "$tmp_payload"; break_end; return 1
 		fi
-
 		if openclaw_pack_backup_archive "memory-full" "multi-agent" "$tmp_payload" "$out_file"; then
-			echo "✅ 记忆全量备份完成 (含多智能体): $out_file"
-			openclaw_offer_transfer_hint "$out_file"
+			echo "✅ 记忆全量备份完成 (含多智能体): $out_file"; openclaw_offer_transfer_hint "$out_file"
 		else
 			echo "❌ 记忆全量备份失败"
 		fi
 		rm -rf "$tmp_payload"; break_end
 	}
 
-	openclaw_read_import_path() {
-		local prompt_text="$1"
-		local file_input file_path backup_root
-		echo "$prompt_text" >&2
-
-		echo "可先通过 scp/sftp 上传备份包到服务器，再输入路径。" >&2
-		echo "scp 示例: scp /本地/备份包.tar.gz root@你的服务器:/tmp/" >&2
-		echo "提示：输入文件名时默认在备份目录查找；输入含 / 的路径时按完整路径校验。" >&2
-		read -e -p "请输入备份文件名或路径: " file_input
-		[ -z "$file_input" ] && { echo ""; return 0; }
-
-		backup_root=$(openclaw_backup_root)
-		mkdir -p "$backup_root"
-
-		if [[ "$file_input" == */* ]]; then
-			file_path="$file_input"
-		else
-			file_path="$backup_root/$file_input"
-		fi
-
-		if [ ! -f "$file_path" ]; then
-			echo "❌ 备份文件不存在: $file_path" >&2
-			echo ""
-			return 1
-		fi
-
-		echo "$file_path"
-	}
-
-	
 	openclaw_memory_backup_import() {
-		send_stats "OpenClaw记忆全量还原-多智能体版"
-		local archive_path=$(openclaw_read_import_path "还原多智能体记忆全量")
+		send_stats "OpenClaw记忆全量还原"
+		local archive_path=$(openclaw_read_import_path "还原记忆全量 (支持多智能体)")
 		[ -z "$archive_path" ] && { echo "❌ 未输入路径"; break_end; return 1; }
-
 		local tmp_unpack=$(mktemp -d) || return 1
 		local pkg_dir=$(openclaw_prepare_import_archive "memory-full" "$archive_path" "$tmp_unpack") || { rm -rf "$tmp_unpack"; break_end; return 1; }
-
 		local workspaces_json=$(openclaw_get_all_agent_workspaces)
-		
-		echo "正在精准还原多智能体记忆..."
-		python3 -c "import json, sys, os, shutil;
-workspaces = {item['id']: item['ws'] for item in json.loads(sys.argv[1])};
-payload_dir = sys.argv[2];
-agents_root = os.path.join(payload_dir, 'agents');
+		python3 -c 'import json, sys, os, shutil;
+workspaces = {item["id"]: item["ws"] for item in json.loads(sys.argv[1])};
+payload_dir = sys.argv[2]; agents_root = os.path.join(payload_dir, "agents")
 if os.path.isdir(agents_root):
     for aid in os.listdir(agents_root):
         if aid in workspaces:
-            src_agent_dir = os.path.join(agents_root, aid)
-            dest_ws = workspaces[aid]
+            src_agent_dir = os.path.join(agents_root, aid); dest_ws = workspaces[aid]
             os.makedirs(dest_ws, exist_ok=True)
             for f in os.listdir(src_agent_dir):
                 src = os.path.join(src_agent_dir, f); dest = os.path.join(dest_ws, f)
                 if os.path.isfile(src): shutil.copy2(src, dest)
                 else: shutil.copytree(src, dest, dirs_exist_ok=True)
-            print(f'✅ 已还原智能体记忆: {aid}')
-" "$workspaces_json" "$pkg_dir/payload"
-
+            print(f"✅ 已还原智能体记忆: {aid}")' "$workspaces_json" "$pkg_dir/payload"
 		rm -rf "$tmp_unpack"; echo "✅ 记忆全量还原完成"; break_end
 	}
 
-		local tmp_unpack
-		tmp_unpack=$(mktemp -d) || return 1
-		local pkg_dir
-		pkg_dir=$(openclaw_prepare_import_archive "memory-full" "$archive_path" "$tmp_unpack") || { rm -rf "$tmp_unpack"; break_end; return 1; }
-
-		local invalid=0
-		local valid_list
-		valid_list=$(mktemp)
-		while IFS= read -r rel; do
-			[ -z "$rel" ] && continue
-			if ! openclaw_is_safe_relpath "$rel" || ! openclaw_restore_path_allowed memory "$rel"; then
-				echo "❌ 检测到非法或越权路径: $rel"
-				invalid=1
-				break
-			fi
-			echo "$rel" >> "$valid_list"
-		done < "$pkg_dir/manifest.files"
-
-		if [ "$invalid" -ne 0 ]; then
-			rm -f "$valid_list"
-			rm -rf "$tmp_unpack"
-			echo "❌ 还原中止：存在不安全路径"
-			break_end
-			return 1
-		fi
-
-
-		while IFS= read -r rel; do
-			mkdir -p "$workspace_dir/$(dirname "$rel")"
-			cp -a "$pkg_dir/payload/$rel" "$workspace_dir/$rel"
-		done < "$valid_list"
-
-		rm -f "$valid_list"
-		rm -rf "$tmp_unpack"
-		echo "✅ 记忆全量还原完成"
-		break_end
-	}
 
 	openclaw_project_backup_export() {
 		send_stats "OpenClaw项目备份"
@@ -14096,27 +14030,46 @@ PY
 		fi
 	}
 
-	openclaw_permission_render_status() {
+		openclaw_permission_render_status() {
 		local config_file mode
 		config_file=$(openclaw_permission_config_file)
 		mode=$(openclaw_permission_detect_mode)
 		echo "配置文件: $config_file"
 		[ ! -s "$config_file" ] && echo "⚠️ 未找到 OpenClaw 配置文件（可能尚未初始化）。"
-		if ! openclaw_has_command openclaw; then
-			echo "⚠️ 未检测到 openclaw 命令，状态读取将基于配置文件。"
-		fi
 		echo "当前模式: $mode"
 		echo "---------------------------------------"
-		printf "%-28s %s\n" "tools.profile" "$(openclaw_permission_get_value tools.profile)"
-		printf "%-28s %s\n" "tools.allow" "$(openclaw_permission_get_value tools.allow)"
-		printf "%-28s %s\n" "tools.deny" "$(openclaw_permission_get_value tools.deny)"
-		printf "%-28s %s\n" "tools.byProvider" "$(openclaw_permission_get_value tools.byProvider)"
-		printf "%-28s %s\n" "tools.exec.security" "$(openclaw_permission_get_value tools.exec.security)"
-		printf "%-28s %s\n" "tools.exec.ask" "$(openclaw_permission_get_value tools.exec.ask)"
-		printf "%-28s %s\n" "tools.elevated.enabled" "$(openclaw_permission_get_value tools.elevated.enabled)"
-		printf "%-28s %s\n" "commands.bash" "$(openclaw_permission_get_value commands.bash)"
-		printf "%-28s %s\n" "applyPatch.enabled" "$(openclaw_permission_get_value tools.exec.applyPatch.enabled)"
-		printf "%-28s %s\n" "applyPatch.workspaceOnly" "$(openclaw_permission_get_value tools.exec.applyPatch.workspaceOnly)"
+
+		# 使用 Python 一次性高效解析所有权限字段
+		python3 - "$config_file" <<'PY'
+import json, sys
+def get_val(obj, path, default="(unset)"):
+    parts = path.split('.')
+    for p in parts:
+        if isinstance(obj, dict) and p in obj: obj = obj[p]
+        else: return default
+    if isinstance(obj, (list, dict)): return json.dumps(obj)
+    return str(obj)
+
+try:
+    with open(sys.argv[1], 'r') as f: data = json.load(f)
+    fields = [
+        ("tools.profile", "tools.profile"),
+        ("tools.allow", "tools.allow"),
+        ("tools.deny", "tools.deny"),
+        ("tools.byProvider", "tools.byProvider"),
+        ("tools.exec.security", "tools.exec.security"),
+        ("tools.exec.ask", "tools.exec.ask"),
+        ("tools.elevated.enabled", "tools.elevated.enabled"),
+        ("commands.bash", "commands.bash"),
+        ("applyPatch.enabled", "tools.exec.applyPatch.enabled"),
+        ("applyPatch.workspaceOnly", "tools.exec.applyPatch.workspaceOnly")
+    ]
+    for label, path in fields:
+        val = get_val(data, path)
+        print("%-28s %s" % (label, val))
+except Exception as e:
+    print("❌ 配置文件解析失败: %s" % e)
+PY
 	}
 
 	openclaw_permission_apply_standard() {
