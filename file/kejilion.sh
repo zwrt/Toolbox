@@ -12597,51 +12597,47 @@ EOF
 		return 0
 	}
 
+	
 	openclaw_memory_backup_export() {
-		send_stats "OpenClaw记忆全量备份"
-		local workspace_dir="${HOME}/.openclaw/workspace"
-		local backup_root
-		backup_root=$(openclaw_backup_root)
-		local ts
-		ts=$(date +%Y%m%d-%H%M%S)
+		send_stats "OpenClaw记忆全量备份-多智能体版"
+		local backup_root=$(openclaw_backup_root)
+		local ts=$(date +%Y%m%d-%H%M%S)
 		local out_file="$backup_root/openclaw-memory-full-${ts}.tar.gz"
-
 		mkdir -p "$backup_root"
-		if [ ! -d "$workspace_dir" ]; then
-			echo "❌ 未找到 workspace 目录: $workspace_dir"
-			break_end
-			return 1
-		fi
 
-		local tmp_payload
-		tmp_payload=$(mktemp -d) || return 1
-
-		[ -f "$workspace_dir/MEMORY.md" ] && cp -a "$workspace_dir/MEMORY.md" "$tmp_payload/"
-		[ -d "$workspace_dir/memory" ] && cp -a "$workspace_dir/memory" "$tmp_payload/"
-
-		read -e -p "是否附带 AGENTS/USER/SOUL/TOOLS 文件？(y/N): " include_optional
-		if [[ "$include_optional" =~ ^[Yy]$ ]]; then
-			for f in AGENTS.md USER.md SOUL.md TOOLS.md; do
-				[ -f "$workspace_dir/$f" ] && cp -a "$workspace_dir/$f" "$tmp_payload/"
-			done
-		fi
+		local tmp_payload=$(mktemp -d) || return 1
+		local workspaces_json=$(openclaw_get_all_agent_workspaces)
+		
+		# 遍历所有智能体
+		python3 -c "import json, sys, os, shutil; 
+workspaces = json.loads(sys.argv[1]); 
+tmp_payload = sys.argv[2];
+for item in workspaces:
+    aid = item['id']; ws = item['ws']
+    if not os.path.isdir(ws): continue
+    target_dir = os.path.join(tmp_payload, 'agents', aid)
+    os.makedirs(target_dir, exist_ok=True)
+    # 核心记忆
+    for f in ['MEMORY.md', 'memory']:
+        src = os.path.join(ws, f)
+        if os.path.exists(src):
+            if os.path.isfile(src): shutil.copy2(src, target_dir)
+            else: shutil.copytree(src, os.path.join(target_dir, f), dirs_exist_ok=True)
+" "$workspaces_json" "$tmp_payload"
 
 		if ! find "$tmp_payload" -mindepth 1 -print -quit | grep -q .; then
 			echo "❌ 未找到可备份的记忆文件"
 			rm -rf "$tmp_payload"
-			break_end
-			return 1
+			break_end; return 1
 		fi
 
-		if openclaw_pack_backup_archive "memory-full" "default" "$tmp_payload" "$out_file"; then
-			echo "✅ 记忆全量备份完成: $out_file"
+		if openclaw_pack_backup_archive "memory-full" "multi-agent" "$tmp_payload" "$out_file"; then
+			echo "✅ 记忆全量备份完成 (含多智能体): $out_file"
 			openclaw_offer_transfer_hint "$out_file"
 		else
 			echo "❌ 记忆全量备份失败"
 		fi
-
-		rm -rf "$tmp_payload"
-		break_end
+		rm -rf "$tmp_payload"; break_end
 	}
 
 	openclaw_read_import_path() {
@@ -12673,14 +12669,37 @@ EOF
 		echo "$file_path"
 	}
 
+	
 	openclaw_memory_backup_import() {
-		send_stats "OpenClaw记忆全量还原"
-		local workspace_dir="${HOME}/.openclaw/workspace"
-		mkdir -p "$workspace_dir"
+		send_stats "OpenClaw记忆全量还原-多智能体版"
+		local archive_path=$(openclaw_read_import_path "还原多智能体记忆全量")
+		[ -z "$archive_path" ] && { echo "❌ 未输入路径"; break_end; return 1; }
 
-		local archive_path
-		archive_path=$(openclaw_read_import_path "还原前将执行：类型校验 + sha256 校验 + 路径白名单校验")
-		[ -z "$archive_path" ] && { echo "❌ 未输入备份路径"; break_end; return 1; }
+		local tmp_unpack=$(mktemp -d) || return 1
+		local pkg_dir=$(openclaw_prepare_import_archive "memory-full" "$archive_path" "$tmp_unpack") || { rm -rf "$tmp_unpack"; break_end; return 1; }
+
+		local workspaces_json=$(openclaw_get_all_agent_workspaces)
+		
+		echo "正在精准还原多智能体记忆..."
+		python3 -c "import json, sys, os, shutil;
+workspaces = {item['id']: item['ws'] for item in json.loads(sys.argv[1])};
+payload_dir = sys.argv[2];
+agents_root = os.path.join(payload_dir, 'agents');
+if os.path.isdir(agents_root):
+    for aid in os.listdir(agents_root):
+        if aid in workspaces:
+            src_agent_dir = os.path.join(agents_root, aid)
+            dest_ws = workspaces[aid]
+            os.makedirs(dest_ws, exist_ok=True)
+            for f in os.listdir(src_agent_dir):
+                src = os.path.join(src_agent_dir, f); dest = os.path.join(dest_ws, f)
+                if os.path.isfile(src): shutil.copy2(src, dest)
+                else: shutil.copytree(src, dest, dirs_exist_ok=True)
+            print(f'✅ 已还原智能体记忆: {aid}')
+" "$workspaces_json" "$pkg_dir/payload"
+
+		rm -rf "$tmp_unpack"; echo "✅ 记忆全量还原完成"; break_end
+	}
 
 		local tmp_unpack
 		tmp_unpack=$(mktemp -d) || return 1
@@ -14472,7 +14491,7 @@ if not agents: print("当前未配置任何多智能体。")
 else:
  import itertools
  for item in itertools.islice(agents, 8):
-  ident_obj=item.get("identity") if isinstance(item.get("identity"),dict) else {}; identity=ident_obj.get("name") or item.get("identityName") or item.get("name") or "-"; emoji=item.get("identityEmoji") or ""; ws=item.get("workspace") or "-"; is_default="是" if item.get("isDefault") else "否"; print("- 智能体ID: %s" % item.get("id","?")); print("  身份名称: %s %s" % (identity, emoji)); print("  工作目录: %s" % ws); print("  默认智能体: %s" % is_default); print("  路由绑定数: %s" % item.get("bindings",0))' "$(openclaw_multiagent_agents_json)" "$(openclaw_multiagent_bindings_json)" "$(openclaw_multiagent_sessions_json)"
+  ident_obj=item.get("identity") if isinstance(item.get("identity"),dict) else {}; identity=ident_obj.get("name") or item.get("identityName") or item.get("name") or "-"; emoji=item.get("identityEmoji") or ""; ws=item.get("workspace") or "-"; print("- 智能体ID: [1;36m%s[0m" % item.get("id","?")); print("  身份名称: %s %s" % (identity, emoji)); print("  工作目录: %s" % ws)' "$(openclaw_multiagent_agents_json)" "$(openclaw_multiagent_bindings_json)" "$(openclaw_multiagent_sessions_json)"
 	}
 
 	openclaw_multiagent_list_agents() {
@@ -14497,6 +14516,13 @@ for idx,item in enumerate(agents,1):
 		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
 		if openclaw agents add "$agent_id" --workspace "$workspace"; then
 			echo "✅ 智能体创建成功: $agent_id"
+			local name theme
+			read -e -p "请输入智能体身份名称 (如: 代码专家): " name
+			[ -z "$name" ] && name="$agent_id"
+			read -e -p "请输入智能体性格主题 (如: 严谨、高效): " theme
+			[ -z "$theme" ] && theme="助手"
+			echo "正在配置智能体身份..."
+			openclaw agents set-identity --agent "$agent_id" --name "$name" --theme "$theme"
 		else
 			echo "❌ 智能体创建失败"
 			return 1
@@ -14564,25 +14590,6 @@ for idx,item in enumerate(bindings,1):
 		fi
 	}
 
-	openclaw_multiagent_set_identity() {
-		send_stats "OpenClaw多智能体-设置智能体身份"
-		openclaw_multiagent_require_openclaw || return 1
-		local agent_id name theme emoji confirm
-		read -e -p "请输入智能体 ID: " agent_id
-		[ -z "$agent_id" ] && echo "已取消：Agent ID 不能为空。" && return 1
-		read -e -p "身份名称（可留空）: " name
-		read -e -p "身份主题（可留空）: " theme
-		read -e -p "身份表情（可留空）: " emoji
-		[ -z "$name$theme$emoji" ] && echo "已取消：至少填写一个身份字段。" && return 1
-		echo "将更新智能体 [$agent_id] 的身份信息。"
-		read -e -p "输入 yes 确认继续: " confirm
-		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
-		local cmd="openclaw agents set-identity --agent '$agent_id'"
-		[ -n "$name" ] && cmd="$cmd --name '$(printf %s "$name" | sed "s/'/'\\''/g")'"
-		[ -n "$theme" ] && cmd="$cmd --theme '$(printf %s "$theme" | sed "s/'/'\\''/g")'"
-		[ -n "$emoji" ] && cmd="$cmd --emoji '$(printf %s "$emoji" | sed "s/'/'\\''/g")'"
-		eval "$cmd"
-	}
 
 	openclaw_multiagent_show_sessions() {
 		send_stats "OpenClaw多智能体-会话概况"
@@ -14607,7 +14614,7 @@ for item in sessions[:10]: print("%s | %s | %s" % (item.get("agentId","?"), item
 if not agents: print("⚠️ 未发现已配置智能体。");
 else:
  for item in agents:
-  ws=item.get("workspace") or ""; state="OK" if ws and os.path.isdir(os.path.expanduser(ws)) else "MISSING"; print("agent=%s workspace=%s [%s]" % (item.get("id","?"), ws or "-", state))
+  ws=item.get("workspace") or ""; aid=item.get("id","?"); state="OK" if ws and os.path.isdir(os.path.expanduser(ws)) else ("OK" if aid=="main" else "MISSING"); print("agent=%s workspace=%s [%s]" % (aid, ws or "-", state))
 print("路由绑定数=%s" % len(bindings)); print("✅ 多智能体健康检查完成")' "$(openclaw_multiagent_agents_json)" "$(openclaw_multiagent_bindings_json)"
 	}
 
@@ -14625,9 +14632,8 @@ print("路由绑定数=%s" % len(bindings)); print("✅ 多智能体健康检查
 			echo "3. 查看路由绑定"
 			echo "4. 新增路由绑定"
 			echo "5. 移除路由绑定"
-			echo "6. 设置智能体身份"
-			echo "7. 查看会话概况"
-			echo "8. 运行多智能体健康检查"
+			echo "6. 查看会话概况"
+			echo "7. 运行多智能体健康检查"
 			echo "0. 返回上一级"
 			echo "---------------------------------------"
 			read -e -p "请输入你的选择: " multi_choice
@@ -14637,9 +14643,8 @@ print("路由绑定数=%s" % len(bindings)); print("✅ 多智能体健康检查
 				3) openclaw_multiagent_list_bindings; break_end ;;
 				4) openclaw_multiagent_add_binding; break_end ;;
 				5) openclaw_multiagent_remove_binding; break_end ;;
-				6) openclaw_multiagent_set_identity; break_end ;;
-				7) openclaw_multiagent_show_sessions; break_end ;;
-				8) openclaw_multiagent_health_check; break_end ;;
+				6) openclaw_multiagent_show_sessions; break_end ;;
+				7) openclaw_multiagent_health_check; break_end ;;
 				0) return 0 ;;
 				*) echo "无效的选择，请重试。"; sleep 1 ;;
 			esac
