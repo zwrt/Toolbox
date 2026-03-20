@@ -10036,6 +10036,7 @@ moltbot_menu() {
 
 		echo "======================================="
 		echo -e "🦞 OPENCLAW 管理工具 by KEJILION 🦞"
+		echo -e "💡 终端执行 \033[1;33mk claw\033[0m 可快速启动菜单"
 		echo -e "$install_status $running_status $update_message"
 		echo "======================================="
 		echo "1.  安装"
@@ -10053,7 +10054,7 @@ moltbot_menu() {
 		echo "12. 健康检测与修复"
 		echo "13. WebUI访问与设置"
 		echo "14. TUI命令行对话窗口"
-		echo "15. 记忆/Memory"
+		echo "15. 记忆管理"
 		echo "16. 权限管理"
 		echo "17. 多智能体管理"
 		echo "--------------------"
@@ -10476,6 +10477,7 @@ PY
 	install_moltbot() {
 		echo "开始安装 OpenClaw..."
 		send_stats "开始安装 OpenClaw..."
+		install git jq gum
 
 		install_node_and_tools
 
@@ -14009,25 +14011,30 @@ PY
 		return 1
 	}
 
-	openclaw_permission_detect_mode() {
-		local profile security ask elevated bash_enabled apply_patch workspace_only
-		profile=$(openclaw_permission_get_value "tools.profile")
-		security=$(openclaw_permission_get_value "tools.exec.security")
-		ask=$(openclaw_permission_get_value "tools.exec.ask")
-		elevated=$(openclaw_permission_get_value "tools.elevated.enabled")
-		bash_enabled=$(openclaw_permission_get_value "commands.bash")
-		apply_patch=$(openclaw_permission_get_value "tools.exec.applyPatch.enabled")
-		workspace_only=$(openclaw_permission_get_value "tools.exec.applyPatch.workspaceOnly")
+		openclaw_permission_detect_mode() {
+		local config_file
+		config_file=$(openclaw_permission_config_file)
+		[ ! -f "$config_file" ] && { echo "未知模式"; return; }
 
-		if [ "$profile" = "coding" ] && [ "$security" = "allowlist" ] && [ "$ask" = "on-miss" ] && [ "$elevated" = "false" ] && [ "$bash_enabled" = "false" ] && [ "$apply_patch" = "false" ]; then
-			echo "标准安全模式"
-		elif [ "$profile" = "coding" ] && [ "$security" = "allowlist" ] && [ "$ask" = "on-miss" ] && [ "$elevated" = "true" ] && [ "$bash_enabled" = "true" ] && [ "$apply_patch" = "true" ] && [ "$workspace_only" = "true" ]; then
-			echo "开发增强模式"
-		elif { [ "$profile" = "full" ] || [ "$profile" = "(unset)" ]; } && [ "$security" = "full" ] && [ "$ask" = "off" ] && [ "$elevated" = "true" ] && [ "$bash_enabled" = "true" ] && [ "$apply_patch" = "true" ]; then
-			echo "完全开放模式"
-		else
-			echo "自定义模式"
-		fi
+		python3 - "$config_file" <<'PY'
+import json, sys
+def get_v(o, p):
+    for k in p.split('.'):
+        if isinstance(o, dict) and k in o: o = o[k]
+        else: return "(unset)"
+    return str(o).lower()
+
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    p, s, a, e = get_v(d, "tools.profile"), get_v(d, "tools.exec.security"), get_v(d, "tools.exec.ask"), get_v(d, "tools.elevated.enabled")
+    b, ap, w = get_v(d, "commands.bash"), get_v(d, "tools.exec.applyPatch.enabled"), get_v(d, "tools.exec.applyPatch.workspaceOnly")
+    
+    if p=="coding" and s=="allowlist" and a=="on-miss" and e=="false" and b=="false" and ap=="false": print("标准安全模式")
+    elif p=="coding" and s=="allowlist" and a=="on-miss" and e=="true" and b=="true" and ap=="true" and w=="true": print("开发增强模式")
+    elif (p=="full" or p=="(unset)") and s=="full" and a=="off" and e=="true" and b=="true" and ap=="true": print("完全开放模式")
+    else: print("自定义模式")
+except: print("自定义模式")
+PY
 	}
 
 		openclaw_permission_render_status() {
