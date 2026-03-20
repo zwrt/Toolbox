@@ -10056,9 +10056,11 @@ moltbot_menu() {
 		echo "15. 记忆/Memory"
 		echo "16. 权限管理"
 		echo "--------------------"
-		echo "17. 备份与还原"
-		echo "18. 更新"
-		echo "19. 卸载"
+		echo "17. 多智能体管理"
+		echo "--------------------"
+		echo "18. 备份与还原"
+		echo "19. 更新"
+		echo "20. 卸载"
 		echo "--------------------"
 		echo "0. 返回上一级选单"
 		echo "--------------------"
@@ -14275,6 +14277,237 @@ PY
 		done
 	}
 
+	openclaw_multiagent_config_file() {
+		openclaw config file 2>/dev/null | tail -n 1
+	}
+
+	openclaw_multiagent_default_agent() {
+		local value
+		value=$(openclaw config get agents.defaults.agent 2>&1 | head -n 1)
+		if [ -z "$value" ] || echo "$value" | grep -qi "config path not found"; then
+			value=$(openclaw agents list --json 2>/dev/null | python3 -c 'import json,sys
+try:
+ data=json.load(sys.stdin)
+ print(next((x.get("id","(unset)") for x in data if x.get("isDefault")), "(unset)"))
+except Exception:
+ print("(unset)")' 2>/dev/null)
+		fi
+		[ -z "$value" ] && value="(unset)"
+		if echo "$value" | grep -q '^".*"$'; then
+			value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//')
+		fi
+		echo "$value"
+	}
+
+	openclaw_multiagent_require_openclaw() {
+		if ! openclaw_has_command openclaw; then
+			echo "❌ 未检测到 openclaw 命令，请先安装或初始化 OpenClaw。"
+			return 1
+		fi
+		return 0
+	}
+
+	openclaw_multiagent_agents_json() {
+		openclaw agents list --json 2>/dev/null || echo '[]'
+	}
+
+	openclaw_multiagent_bindings_json() {
+		openclaw agents bindings --json 2>/dev/null || echo '[]'
+	}
+
+	openclaw_multiagent_sessions_json() {
+		openclaw sessions --all-agents --json 2>/dev/null || echo '{}'
+	}
+
+	openclaw_multiagent_render_status() {
+		local config_file default_agent
+		config_file=$(openclaw_multiagent_config_file)
+		default_agent=$(openclaw_multiagent_default_agent)
+		echo "配置文件: ${config_file:-$(openclaw_permission_config_file)}"
+		echo "默认智能体: $default_agent"
+		python3 -c 'import json,sys; agents=json.loads(sys.argv[1] or "[]"); bindings=json.loads(sys.argv[2] or "[]"); obj=json.loads(sys.argv[3] or "{}"); sessions=obj.get("sessions",[]) if isinstance(obj,dict) else []; print("已配置智能体数: %s" % len(agents)); print("路由绑定数: %s" % len(bindings)); print("会话总数: %s" % len(sessions)); print("---------------------------------------");
+if not agents: print("当前未配置任何多智能体。")
+else:
+ import itertools
+ for item in itertools.islice(agents, 8):
+  identity=item.get("identityName") or "-"; emoji=item.get("identityEmoji") or ""; ws=item.get("workspace") or "-"; is_default="是" if item.get("isDefault") else "否"; print("- 智能体ID: %s" % item.get("id","?")); print("  身份名称: %s %s" % (identity, emoji)); print("  工作目录: %s" % ws); print("  默认智能体: %s" % is_default); print("  路由绑定数: %s" % item.get("bindings",0))' "$(openclaw_multiagent_agents_json)" "$(openclaw_multiagent_bindings_json)" "$(openclaw_multiagent_sessions_json)"
+	}
+
+	openclaw_multiagent_list_agents() {
+		send_stats "OpenClaw多智能体-列出Agent"
+		openclaw_multiagent_require_openclaw || return 1
+		python3 -c 'import json,sys; agents=json.loads(sys.argv[1] or "[]");
+if not agents: print("暂无已配置 Agent。"); raise SystemExit(0)
+for idx,item in enumerate(agents,1):
+ print("%s. %s" % (idx, item.get("id","?"))); print("   workspace : %s" % item.get("workspace","-")); ident=(item.get("identityName") or "-") + ((" " + item.get("identityEmoji")) if item.get("identityEmoji") else ""); print("   identity  : %s" % ident.strip()); print("   model     : %s" % (item.get("model") or "-")); print("   bindings  : %s" % item.get("bindings",0)); print("   default   : %s" % ("yes" if item.get("isDefault") else "no"))' "$(openclaw_multiagent_agents_json)"
+	}
+
+	openclaw_multiagent_add_agent() {
+		send_stats "OpenClaw多智能体-新增Agent"
+		openclaw_multiagent_require_openclaw || return 1
+		local agent_id workspace confirm
+		read -e -p "请输入新的 Agent ID: " agent_id
+		[ -z "$agent_id" ] && echo "已取消：Agent ID 不能为空。" && return 1
+		read -e -p "请输入 workspace 路径（默认 ~/.openclaw/workspace-${agent_id}）: " workspace
+		[ -z "$workspace" ] && workspace="~/.openclaw/workspace-${agent_id}"
+		echo "将创建智能体: $agent_id"
+		echo "工作目录: $workspace"
+		read -e -p "输入 yes 确认继续: " confirm
+		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
+		if openclaw agents add "$agent_id" --workspace "$workspace"; then
+			echo "✅ 智能体创建成功: $agent_id"
+		else
+			echo "❌ 智能体创建失败"
+			return 1
+		fi
+	}
+
+	openclaw_multiagent_delete_agent() {
+		send_stats "OpenClaw多智能体-删除Agent"
+		openclaw_multiagent_require_openclaw || return 1
+		local agent_id confirm
+		read -e -p "请输入要删除的 Agent ID: " agent_id
+		[ -z "$agent_id" ] && echo "已取消：Agent ID 不能为空。" && return 1
+		echo "⚠️ 删除智能体可能影响其工作目录、路由绑定与会话路由。"
+		read -e -p "输入 DELETE 确认删除 ${agent_id}: " confirm
+		[ "$confirm" = "DELETE" ] || { echo "已取消"; return 1; }
+		if openclaw agents delete "$agent_id"; then
+			echo "✅ 智能体删除成功: $agent_id"
+		else
+			echo "❌ 智能体删除失败"
+			return 1
+		fi
+	}
+
+	openclaw_multiagent_list_bindings() {
+		send_stats "OpenClaw多智能体-查看路由绑定"
+		openclaw_multiagent_require_openclaw || return 1
+		python3 -c 'import json,sys; bindings=json.loads(sys.argv[1] or "[]");
+if not bindings: print("暂无路由绑定。"); raise SystemExit(0)
+for idx,item in enumerate(bindings,1):
+ bind=item.get("bind") or item.get("binding") or item.get("scope") or "-"; print("%s. agent=%s | bind=%s" % (idx, item.get("agentId","?"), bind))' "$(openclaw_multiagent_bindings_json)"
+	}
+
+	openclaw_multiagent_add_binding() {
+		send_stats "OpenClaw多智能体-新增路由绑定"
+		openclaw_multiagent_require_openclaw || return 1
+		local agent_id bind_value confirm
+		read -e -p "请输入智能体 ID: " agent_id
+		read -e -p "请输入路由绑定值（如 telegram:ops / discord:guild-a）: " bind_value
+		{ [ -z "$agent_id" ] || [ -z "$bind_value" ]; } && echo "已取消：参数不能为空。" && return 1
+		echo "将绑定智能体 [$agent_id] -> [$bind_value]"
+		read -e -p "输入 yes 确认继续: " confirm
+		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
+		if openclaw agents bind --agent "$agent_id" --bind "$bind_value"; then
+			echo "✅ 路由绑定添加成功"
+		else
+			echo "❌ 路由绑定添加失败"
+			return 1
+		fi
+	}
+
+	openclaw_multiagent_remove_binding() {
+		send_stats "OpenClaw多智能体-移除路由绑定"
+		openclaw_multiagent_require_openclaw || return 1
+		local agent_id bind_value confirm
+		read -e -p "请输入智能体 ID: " agent_id
+		read -e -p "请输入要移除的路由绑定值: " bind_value
+		{ [ -z "$agent_id" ] || [ -z "$bind_value" ]; } && echo "已取消：参数不能为空。" && return 1
+		echo "将移除智能体 [$agent_id] 的路由绑定 [$bind_value]"
+		read -e -p "输入 yes 确认继续: " confirm
+		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
+		if openclaw agents unbind --agent "$agent_id" --bind "$bind_value"; then
+			echo "✅ 路由绑定移除成功"
+		else
+			echo "❌ 路由绑定移除失败"
+			return 1
+		fi
+	}
+
+	openclaw_multiagent_set_identity() {
+		send_stats "OpenClaw多智能体-设置智能体身份"
+		openclaw_multiagent_require_openclaw || return 1
+		local agent_id name theme emoji confirm
+		read -e -p "请输入智能体 ID: " agent_id
+		[ -z "$agent_id" ] && echo "已取消：Agent ID 不能为空。" && return 1
+		read -e -p "身份名称（可留空）: " name
+		read -e -p "身份主题（可留空）: " theme
+		read -e -p "身份表情（可留空）: " emoji
+		[ -z "$name$theme$emoji" ] && echo "已取消：至少填写一个身份字段。" && return 1
+		echo "将更新智能体 [$agent_id] 的身份信息。"
+		read -e -p "输入 yes 确认继续: " confirm
+		[ "$confirm" = "yes" ] || { echo "已取消"; return 1; }
+		local cmd="openclaw agents set-identity --agent '$agent_id'"
+		[ -n "$name" ] && cmd="$cmd --name '$(printf %s "$name" | sed "s/'/'\\''/g")'"
+		[ -n "$theme" ] && cmd="$cmd --theme '$(printf %s "$theme" | sed "s/'/'\\''/g")'"
+		[ -n "$emoji" ] && cmd="$cmd --emoji '$(printf %s "$emoji" | sed "s/'/'\\''/g")'"
+		eval "$cmd"
+	}
+
+	openclaw_multiagent_show_sessions() {
+		send_stats "OpenClaw多智能体-会话概况"
+		openclaw_multiagent_require_openclaw || return 1
+		python3 -c 'import json,sys; obj=json.loads(sys.argv[1] or "{}"); sessions=obj.get("sessions",[]) if isinstance(obj,dict) else [];
+if not sessions: print("暂无 session 数据。"); raise SystemExit(0)
+by_agent={}
+for item in sessions: by_agent[item.get("agentId","?")]=by_agent.get(item.get("agentId","?"),0)+1
+print("会话汇总:")
+for agent_id,count in sorted(by_agent.items()): print("- %s: %s" % (agent_id, count))
+print("---------------------------------------")
+for item in sessions[:10]: print("%s | %s | %s" % (item.get("agentId","?"), item.get("key","-"), item.get("model") or "-"))' "$(openclaw_multiagent_sessions_json)"
+	}
+
+	openclaw_multiagent_health_check() {
+		send_stats "OpenClaw多智能体-健康检查"
+		openclaw_multiagent_require_openclaw || return 1
+		local config_file
+		config_file=$(openclaw_multiagent_config_file)
+		echo "检查配置文件: ${config_file:-$(openclaw_permission_config_file)}"
+		openclaw config validate || echo "⚠️ 配置校验未通过，请检查上方输出。"
+		python3 -c 'import json,sys,os; agents=json.loads(sys.argv[1] or "[]"); bindings=json.loads(sys.argv[2] or "[]"); print("---------------------------------------");
+if not agents: print("⚠️ 未发现已配置智能体。");
+else:
+ for item in agents:
+  ws=item.get("workspace") or ""; state="OK" if ws and os.path.isdir(os.path.expanduser(ws)) else "MISSING"; print("agent=%s workspace=%s [%s]" % (item.get("id","?"), ws or "-", state))
+print("路由绑定数=%s" % len(bindings)); print("✅ 多智能体健康检查完成")' "$(openclaw_multiagent_agents_json)" "$(openclaw_multiagent_bindings_json)"
+	}
+
+	openclaw_multiagent_menu() {
+		send_stats "OpenClaw多智能体管理"
+		while true; do
+			clear
+			echo "======================================="
+			echo "OpenClaw 多智能体管理"
+			echo "======================================="
+			openclaw_multiagent_render_status
+			echo "---------------------------------------"
+			echo "1. 新增智能体"
+			echo "2. 删除智能体"
+			echo "3. 查看路由绑定"
+			echo "4. 新增路由绑定"
+			echo "5. 移除路由绑定"
+			echo "6. 设置智能体身份"
+			echo "7. 查看会话概况"
+			echo "8. 运行多智能体健康检查"
+			echo "0. 返回上一级"
+			echo "---------------------------------------"
+			read -e -p "请输入你的选择: " multi_choice
+			case "$multi_choice" in
+				1) openclaw_multiagent_add_agent; break_end ;;
+				2) openclaw_multiagent_delete_agent; break_end ;;
+				3) openclaw_multiagent_list_bindings; break_end ;;
+				4) openclaw_multiagent_add_binding; break_end ;;
+				5) openclaw_multiagent_remove_binding; break_end ;;
+				6) openclaw_multiagent_set_identity; break_end ;;
+				7) openclaw_multiagent_show_sessions; break_end ;;
+				8) openclaw_multiagent_health_check; break_end ;;
+				0) return 0 ;;
+				*) echo "无效的选择，请重试。"; sleep 1 ;;
+			esac
+		done
+	}
+
+
 openclaw_backup_restore_menu() {
 
 		send_stats "OpenClaw备份与还原"
@@ -14521,9 +14754,10 @@ openclaw_backup_restore_menu() {
 			 	;;
 			15) openclaw_memory_menu ;;
 			16) openclaw_permission_menu ;;
-			17) openclaw_backup_restore_menu ;;
-			18) update_moltbot ;;
-			19) uninstall_moltbot ;;
+			17) openclaw_multiagent_menu ;;
+			18) openclaw_backup_restore_menu ;;
+			19) update_moltbot ;;
+			20) uninstall_moltbot ;;
 			*) break ;;
 		esac
 	done
