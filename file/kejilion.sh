@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.4.8"
+sh_v="4.4.9"
 
 
 gl_hui='\e[37m'
@@ -12335,18 +12335,24 @@ openclaw_json_get_bool() {
 		tg_status=$(openclaw_bot_status_text "$tg_enabled" "$tg_cfg" "$tg_connected" "$tg_abnormal")
 
 		local feishu_enabled feishu_cfg feishu_connected feishu_abnormal feishu_status
-		feishu_enabled=$(openclaw_json_get_bool '.plugins.entries.feishu.enabled // .channels.feishu.enabled // false')
+		feishu_enabled=$(openclaw_json_get_bool '.plugins.entries.feishu.enabled // .plugins.entries["openclaw-lark"].enabled // .channels.feishu.enabled // .channels.lark.enabled // false')
 		feishu_cfg=$(openclaw_channel_has_cfg "feishu")
+		if [ "$feishu_cfg" != "true" ]; then
+			feishu_cfg=$(openclaw_channel_has_cfg "lark")
+		fi
 		feishu_connected="false"
-		if openclaw_dir_has_files "${HOME}/.openclaw/feishu"; then
+		if openclaw_dir_has_files "${HOME}/.openclaw/feishu" || openclaw_dir_has_files "${HOME}/.openclaw/lark" || openclaw_dir_has_files "${HOME}/.openclaw/openclaw-lark"; then
 			feishu_connected="true"
 		fi
 		feishu_abnormal="false"
-		if [ "$feishu_enabled" = "true" ] && ! openclaw_plugin_local_installed "feishu"; then
+		if [ "$feishu_enabled" = "true" ] && ! openclaw_plugin_local_installed "feishu" && ! openclaw_plugin_local_installed "lark" && ! openclaw_plugin_local_installed "openclaw-lark"; then
 			feishu_abnormal="true"
 		fi
 		if [ "$feishu_enabled" = "true" ] && [ "$json_ok" != "true" ]; then
 			feishu_abnormal="true"
+		fi
+		if [ "$feishu_connected" != "true" ] && [ "$feishu_enabled" = "true" ] && [ "$feishu_cfg" = "true" ] && { openclaw_plugin_local_installed "feishu" || openclaw_plugin_local_installed "lark" || openclaw_plugin_local_installed "openclaw-lark"; }; then
+			feishu_connected="true"
 		fi
 		feishu_status=$(openclaw_bot_status_text "$feishu_enabled" "$feishu_cfg" "$feishu_connected" "$feishu_abnormal")
 
@@ -12411,6 +12417,25 @@ openclaw_json_get_bool() {
 		fi
 		qq_status=$(openclaw_bot_status_text "$qq_enabled" "$qq_cfg" "$qq_connected" "$qq_abnormal")
 
+		local wx_enabled wx_cfg wx_connected wx_abnormal wx_status
+		wx_enabled=$(openclaw_json_get_bool '.plugins.entries.weixin.enabled // .plugins.entries["openclaw-weixin"].enabled // .channels.weixin.enabled // .channels["openclaw-weixin"].enabled // false')
+		wx_cfg=$(openclaw_channel_has_cfg "weixin")
+		if [ "$wx_cfg" != "true" ]; then
+			wx_cfg=$(openclaw_channel_has_cfg "openclaw-weixin")
+		fi
+		wx_connected="false"
+		if openclaw_dir_has_files "${HOME}/.openclaw/weixin" || openclaw_dir_has_files "${HOME}/.openclaw/openclaw-weixin"; then
+			wx_connected="true"
+		fi
+		wx_abnormal="false"
+		if [ "$wx_enabled" = "true" ] && ! openclaw_plugin_local_installed "weixin" && ! openclaw_plugin_local_installed "openclaw-weixin"; then
+			wx_abnormal="true"
+		fi
+		if [ "$wx_enabled" = "true" ] && [ "$json_ok" != "true" ]; then
+			wx_abnormal="true"
+		fi
+		wx_status=$(openclaw_bot_status_text "$wx_enabled" "$wx_cfg" "$wx_connected" "$wx_abnormal")
+
 		echo "本地状态（仅本机配置/缓存，不做网络探测）："
 		openclaw_print_bot_status_line "Telegram" "$tg_status"
 		openclaw_print_bot_status_line "飞书(Lark)" "$feishu_status"
@@ -12418,6 +12443,7 @@ openclaw_json_get_bool() {
 		openclaw_print_bot_status_line "Discord" "$dc_status"
 		openclaw_print_bot_status_line "Slack" "$slack_status"
 		openclaw_print_bot_status_line "QQ Bot" "$qq_status"
+		openclaw_print_bot_status_line "微信 (Weixin)" "$wx_status"
 	}
 
 	change_tg_bot_code() {
@@ -12432,6 +12458,8 @@ openclaw_json_get_bool() {
 			echo "1. Telegram 机器人对接"
 			echo "2. 飞书 (Lark) 机器人对接"
 			echo "3. WhatsApp 机器人对接"
+			echo "4. QQ 机器人对接"
+			echo "5. 微信机器人对接"
 			echo "----------------------------------------"
 			echo "0. 返回上一级选单"
 			echo "----------------------------------------"
@@ -12446,10 +12474,9 @@ openclaw_json_get_bool() {
 					break_end
 					;;
 				2)
-					read -e -p "请输入飞书机器人收到的连接码 (例如 NYA99R2F)（输入 0 退出）： " code
-					if [ "$code" = "0" ]; then continue; fi
-					if [ -z "$code" ]; then echo "错误：连接码不能为空。"; sleep 1; continue; fi
-					openclaw pairing approve feishu "$code"
+					npx -y @larksuite/openclaw-lark install
+					openclaw config set channels.feishu.streaming true
+					openclaw config set channels.feishu.requireMention true --json
 					break_end
 					;;
 				3)
@@ -12457,6 +12484,15 @@ openclaw_json_get_bool() {
 					if [ "$code" = "0" ]; then continue; fi
 					if [ -z "$code" ]; then echo "错误：连接码不能为空。"; sleep 1; continue; fi
 					openclaw pairing approve whatsapp "$code"
+					break_end
+					;;
+				4)
+					echo "QQ 官方对接地址："
+					echo "https://q.qq.com/qqbot/openclaw/login.html"
+					break_end
+					;;
+				5)
+					npx -y @tencent-weixin/openclaw-weixin-cli@latest install
 					break_end
 					;;
 				0)
