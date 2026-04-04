@@ -25,20 +25,25 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
+        set -e
+
         sudo timedatectl set-timezone "Asia/Shanghai"
         mkdir -p ./file
 
-        wget -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
-        wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh
-        wget -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh
+        wget -q --show-progress -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
+        wget -q --show-progress -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh
+        wget -q --show-progress -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh
 
         git clone --depth=1 --branch=main https://github.com/walkxcode/dashboard-icons.git
+        rm -rf ./file/png
         cp -R dashboard-icons/png ./file/
         rm -rf dashboard-icons/
 
     - name: Commit (only if changes)
       id: commit
       run: |
+        set -e
+
         git config --local user.name "GitHub Actions"
         git config --local user.email "actions@github.com"
 
@@ -52,7 +57,11 @@ jobs:
           exit 0
         fi
 
-        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S")${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
+        R=$((RANDOM % ${#Emoji[@]}))
+        EMOJI="${Emoji[$R]}"
+        TS="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
+
+        git commit -m "${EMOJI} Sync ${TS} ${EMOJI}"
         git pull --rebase
 
         echo "PUSH_NEEDED=true" >> "$GITHUB_OUTPUT"
