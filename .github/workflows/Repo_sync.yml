@@ -4,83 +4,61 @@ on:
   repository_dispatch:
   workflow_dispatch:
   schedule:
-    - cron: 0 * * * *  # 每小时执行一次
+    - cron: 0 * * * *
 
 jobs:
   New-Update-Files:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # 保证能 pull 历史记录
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: true
 
-      - name: Delete workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          retain_days: 0
-          keep_minimum_runs: 3
+    - name: Delete workflow runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 0
+        keep_minimum_runs: 3
 
-      - name: Initialization environment
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo timedatectl set-timezone "Asia/Shanghai"
-          
-          # 创建目录
-          mkdir -p ./file
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo timedatectl set-timezone "Asia/Shanghai"
+        mkdir -p ./file
 
-          # 下载文件并检查
-          echo "⬇️ Downloading README.md..."
-          wget -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md || { echo "❌ Failed to download README.md"; exit 1; }
+        wget -O ./file/README.md https://raw.githubusercontent.com/zwrt/IPTV/Files/README.md
+        wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh
+        wget -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh
 
-          echo "⬇️ Downloading kejilion.sh..."
-          wget -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh || { echo "❌ Failed to download kejilion.sh"; exit 1; }
+        git clone --depth=1 --branch=main https://github.com/walkxcode/dashboard-icons.git
+        cp -R dashboard-icons/png ./file/
+        rm -rf dashboard-icons/
 
-          echo "⬇️ Downloading InstallNET.sh..."
-          wget -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh || { echo "❌ Failed to download InstallNET.sh"; exit 1; }
+    - name: Commit (only if changes)
+      id: commit
+      run: |
+        git config --local user.name "GitHub Actions"
+        git config --local user.email "actions@github.com"
 
-          echo "⬇️ Cloning dashboard-icons..."
-          git clone --depth=1 --branch=main https://github.com/walkxcode/dashboard-icons.git
-          if [ -d "dashboard-icons/png" ]; then
-            cp -R dashboard-icons/png ./file/
-            rm -rf dashboard-icons/
-            echo "✅ dashboard icons copied to ./file/"
-          else
-            echo "❌ dashboard-icons/png not found. Skipping."
-            exit 1
-          fi
+        Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
 
-      - name: Debug: Check files
-        run: |
-          echo "📄 Files in ./file/"
-          ls -la ./file/
-          git status --porcelain
+        git add .
 
-      - name: Commit changes (if any)
-        run: |
-          git config --local user.name "GitHub Actions"
-          git config --local user.email "actions@github.com"
+        if git diff --cached --quiet; then
+          echo "No changes detected, skip commit and push."
+          echo "PUSH_NEEDED=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
 
-          # 生成 emoji 随机表情
-          Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🛸" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
+        git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S")${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
+        git pull --rebase
 
-          # 检查是否有变更
-          if git diff-index --quiet HEAD --; then
-            echo "🟢 No changes detected. Skipping commit."
-          else
-            echo "📌 Changes detected. Committing..."
-            git add .
-            git commit -m "${Emoji[$[$RANDOM % ${#Emoji[@]}]]} Sync $(TZ='Asia/Shanghai' date +%Y-%m-%d" "%H:%M:%S)${Emoji[$[$RANDOM % ${#Emoji[@]}]]}"
-          fi
+        echo "PUSH_NEEDED=true" >> "$GITHUB_OUTPUT"
 
-          # 强制拉取最新代码（避免冲突）
-          git pull --rebase
-
-      - name: Push changes
-        uses: ad-m/github-push-action@v0.9.1
-        with:
-          github_token: ${{ secrets.GH_TOKEN }}
-          branch: main
-          force: false  # 保持安全，不强制推
-          push_options: --set-upstream
+    - name: Push changes (only if committed)
+      if: steps.commit.outputs.PUSH_NEEDED == 'true'
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GH_TOKEN }}
