@@ -34,10 +34,10 @@ jobs:
         wget -q --show-progress -O ./file/kejilion.sh https://raw.githubusercontent.com/kejilion/sh/main/kejilion.sh
         wget -q --show-progress -O ./file/InstallNET.sh https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh
 
+        rm -rf ./png
         git clone --depth=1 --branch=main https://github.com/walkxcode/dashboard-icons.git
-        rm -rf ./file/png
-        cp -R dashboard-icons/png ./file/
-        rm -rf dashboard-icons/
+        cp -R dashboard-icons/png ./png
+        rm -rf dashboard-icons
 
     - name: Commit (only if changes)
       id: commit
