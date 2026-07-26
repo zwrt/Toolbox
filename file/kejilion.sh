@@ -2857,10 +2857,83 @@ grep -qxF "${app_id}" /home/docker/appno.txt || echo "${app_id}" >> /home/docker
 
 }
 
+kpanel_app_progress() {
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] || return 0
+	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
+}
+
+kpanel_app_install_port() {
+	local requested_port="${KJ_APP_PORT:-${docker_port:-}}"
+
+	case "$requested_port" in
+		''|*[!0-9]*)
+			echo "错误: KPanel 未提供有效的应用端口"
+			return 1
+			;;
+	esac
+	if [ "$requested_port" -lt 1 ] || [ "$requested_port" -gt 65535 ]; then
+		echo "错误: KPanel 应用端口必须在 1-65535 之间"
+		return 1
+	fi
+	if ss -tuln 2>/dev/null | grep -q ":${requested_port} "; then
+		echo "错误: 端口 ${requested_port} 已被占用"
+		return 1
+	fi
+	docker_port="$requested_port"
+	return 0
+}
+
+kpanel_run_docker_app_install() {
+	local adapter="$1"
+
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] || return 2
+	if [ "${KJ_APP_ACTION:-}" != "install" ]; then
+		echo "错误: KPanel 当前仅允许非交互安装"
+		return 1
+	fi
+
+	kpanel_app_progress 5 "正在校验端口与宿主机环境"
+	kpanel_app_install_port || return 1
+	setup_docker_dir || return 1
+	check_disk_space "${app_size:-1}" /home/docker || return 1
+	kpanel_app_progress 15 "正在准备 Docker 运行环境"
+	install jq || return 1
+	install_docker || return 1
+	kpanel_app_progress 30 "正在执行 kejilion.sh 应用安装函数"
+
+	if [ "$adapter" = "plus" ]; then
+		if ! docker_app_install; then
+			echo "安装失败: 未登记应用状态"
+			return 1
+		fi
+	else
+		if ! docker_rum; then
+			echo "安装失败: 未登记应用状态"
+			return 1
+		fi
+	fi
+
+	kpanel_app_progress 90 "正在写入 kejilion.sh 兼容状态"
+	echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
+	add_app_id
+	if [ "$adapter" = "standard" ]; then
+		[ -n "${docker_use:-}" ] && $docker_use
+		[ -n "${docker_passwd:-}" ] && $docker_passwd
+	fi
+	kpanel_app_progress 100 "应用安装完成"
+	echo "$docker_name 已经安装完成"
+	return 0
+}
+
 
 
 docker_app() {
 send_stats "${docker_name}管理"
+
+if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+	kpanel_run_docker_app_install standard
+	return $?
+fi
 
 while true; do
 	clear
@@ -2984,6 +3057,10 @@ done
 
 docker_app_plus() {
 	send_stats "$app_name"
+	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+		kpanel_run_docker_app_install plus
+		return $?
+	fi
 	while true; do
 		clear
 		check_docker_app
@@ -3031,25 +3108,32 @@ docker_app_plus() {
 
 				install jq
 				install_docker
-				docker_app_install
-				echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
-
-				add_app_id
-				send_stats "$app_name 安装"
+				if docker_app_install; then
+					echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
+					add_app_id
+					send_stats "$app_name 安装"
+				else
+					echo -e "${gl_hong}安装失败: ${gl_bai}未登记应用状态，请根据上方错误修复后重试。"
+				fi
 				;;
 
 			2)
-				docker_app_update
-				add_app_id
-				send_stats "$app_name 更新"
+				if docker_app_update; then
+					add_app_id
+					send_stats "$app_name 更新"
+				else
+					echo -e "${gl_hong}更新失败: ${gl_bai}已保留原应用登记状态。"
+				fi
 				;;
 
 			3)
-				docker_app_uninstall
-				rm -f /home/docker/${docker_name}_port.conf
-
-				sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
-				send_stats "$app_name 卸载"
+				if docker_app_uninstall; then
+					rm -f /home/docker/${docker_name}_port.conf
+					sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
+					send_stats "$app_name 卸载"
+				else
+					echo -e "${gl_hong}卸载失败: ${gl_bai}已保留应用登记状态。"
+				fi
 				;;
 
 			5)
@@ -19452,6 +19536,9 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 		fi
 		  ;;
 	esac
+	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+		return
+	fi
 	break_end
 	sub_choice=""
 
