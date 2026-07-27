@@ -1804,32 +1804,72 @@ web_cache() {
 web_del() {
 
 	send_stats "删除站点数据"
-	yuming_list="${1:-}"
-	if [ -z "$yuming_list" ]; then
-		read -e -p "删除站点数据，请输入你的域名（多个域名用空格隔开）: " yuming_list
-		if [[ -z "$yuming_list" ]]; then
+	local -a yuming_list=()
+	if [ "$#" -gt 0 ]; then
+		yuming_list=("$@")
+	else
+		local yuming_input=""
+		read -e -p "删除站点数据，请输入你的域名（多个域名用空格隔开）: " yuming_input
+		if [[ -z "$yuming_input" ]]; then
 			return
 		fi
+		read -r -a yuming_list <<< "$yuming_input"
 	fi
 
-	for yuming in $yuming_list; do
+	local action_status=0
+	for yuming in "${yuming_list[@]}"; do
+		if [ -z "$yuming" ] || [ "${#yuming}" -gt 253 ] ||
+			! printf '%s' "$yuming" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+			echo "无效域名，拒绝删除: $yuming"
+			action_status=1
+			continue
+		fi
+
 		echo "正在删除域名: $yuming"
-		rm -r /home/web/html/$yuming > /dev/null 2>&1
-		rm /home/web/conf.d/$yuming.conf > /dev/null 2>&1
-		rm /home/web/certs/${yuming}_key.pem > /dev/null 2>&1
-		rm /home/web/certs/${yuming}_cert.pem > /dev/null 2>&1
+		rm -rf -- "/home/web/html/$yuming" > /dev/null 2>&1
+		rm -f -- "/home/web/conf.d/$yuming.conf" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}_key.pem" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}_cert.pem" > /dev/null 2>&1
 
 		# 将域名转换为数据库名
 		dbname=$(echo "$yuming" | sed -e 's/[^A-Za-z0-9]/_/g')
-		dbrootpasswd=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
+		if [ -f /home/web/docker-compose.yml ] &&
+			docker inspect mysql > /dev/null 2>&1; then
+			dbrootpasswd=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
+			echo "正在删除数据库: $dbname"
+			if docker exec mysql mysql -u root -p"$dbrootpasswd" \
+				-e "DROP DATABASE IF EXISTS \`${dbname}\`;" > /dev/null 2>&1; then
+				echo "KPANEL_DELETE_DATABASE dropped $yuming"
+			else
+				echo "KPANEL_DELETE_DATABASE failed $yuming"
+				action_status=1
+			fi
+		else
+			echo "KPANEL_DELETE_DATABASE skipped $yuming"
+		fi
 
-		# 删除数据库前检查是否存在，避免报错
-		echo "正在删除数据库: $dbname"
-		docker exec mysql mysql -u root -p"$dbrootpasswd" -e "DROP DATABASE ${dbname};" > /dev/null 2>&1
+		if [ -e "/home/web/html/$yuming" ] ||
+			[ -e "/home/web/conf.d/$yuming.conf" ] ||
+			[ -e "/home/web/certs/${yuming}_key.pem" ] ||
+			[ -e "/home/web/certs/${yuming}_cert.pem" ]; then
+			echo "站点产物删除不完整: $yuming"
+			action_status=1
+		else
+			echo "KPANEL_DELETE_SITE deleted $yuming"
+		fi
 	done
 
-	docker exec nginx nginx -s reload
+	if docker inspect nginx > /dev/null 2>&1; then
+		if ! docker exec nginx nginx -t > /dev/null 2>&1 ||
+			! docker exec nginx nginx -s reload; then
+			echo "Nginx 配置验证或重载失败"
+			action_status=1
+		fi
+	else
+		echo "KPANEL_DELETE_WARNING nginx_unavailable"
+	fi
 
+	return "$action_status"
 }
 
 
@@ -9381,6 +9421,29 @@ KPANEL_TEST_ITEM	nodequality	comprehensive	NodeQuality 综合测评	运行 NodeQ
 KPANEL_TEST_CATALOG
 }
 
+kpanel_run_remote_bash() {
+	local source_url="${1:-}"
+	shift || true
+	[ -n "$source_url" ] || return 64
+
+	local test_workspace test_script command_status
+	test_workspace="$(mktemp -d)" || return 1
+	test_script="$test_workspace/test.sh"
+	curl -fsSL "$source_url" -o "$test_script"
+	command_status=$?
+	if [ "$command_status" -ne 0 ]; then
+		rm -f "$test_script"
+		rmdir "$test_workspace" 2>/dev/null || true
+		return "$command_status"
+	fi
+	chmod 700 "$test_script"
+	bash "$test_script" "$@"
+	command_status=$?
+	rm -f "$test_script"
+	rmdir "$test_workspace" 2>/dev/null || true
+	return "$command_status"
+}
+
 kpanel_run_test_noninteractive() {
 	[ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ] || return 2
 
@@ -9405,68 +9468,66 @@ kpanel_run_test_noninteractive() {
 				case "$selector" in
 				chatgpt)
 					send_stats "ChatGPT解锁状态检测"
-					curl -fsSL https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh | bash
+					kpanel_run_remote_bash https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh
 					;;
 				region)
 					send_stats "Region流媒体解锁测试"
-					curl -fsSL https://check.unlock.media | bash
+					kpanel_run_remote_bash https://check.unlock.media
 					;;
 				media)
 					send_stats "yeahwu流媒体解锁检测"
-					install wget
-					wget -qO- ${gh_proxy}github.com/yeahwu/check/raw/main/check.sh | bash
+					kpanel_run_remote_bash ${gh_proxy}github.com/yeahwu/check/raw/main/check.sh
 					;;
 				ip-quality)
 					send_stats "xykt_IP质量体检脚本"
-					curl -fsSL https://IP.Check.Place | bash
+					kpanel_run_remote_bash https://IP.Check.Place
 					;;
 				besttrace)
 					send_stats "besttrace三网回程延迟路由测试"
-					install wget
-					wget -qO- https://git.io/besttrace | bash
+					kpanel_run_remote_bash https://git.io/besttrace
 					;;
 				mtr)
 					send_stats "mtr_trace三网回程线路测试"
-					curl -fsSL ${gh_proxy}raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh | bash
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh
 					;;
 				superspeed)
 					send_stats "Superspeed三网测速"
-					curl -fsSL https://git.io/superspeed_uxh | bash
+					kpanel_run_remote_bash https://git.io/superspeed_uxh
 					;;
 				nxtrace-fast)
 					send_stats "nxtrace快速回程测试脚本"
-					curl -fsSL https://nxtrace.org/nt | bash
+					kpanel_run_remote_bash https://nxtrace.org/nt
 					nexttrace --fast-trace --tcp
 					;;
 				backtrace)
 					send_stats "ludashi2020三网线路测试"
-					curl -fsSL ${gh_proxy}raw.githubusercontent.com/ludashi2020/backtrace/main/install.sh | sh
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/ludashi2020/backtrace/main/install.sh
 					;;
 				speedtest)
 					send_stats "i-abc多功能测速脚本"
-					curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/Speedtest/main/speedtest.sh | bash
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/i-abc/Speedtest/main/speedtest.sh
 					;;
 				net-quality)
 					send_stats "网络质量测试脚本"
-					curl -fsSL https://Net.Check.Place | bash
+					kpanel_run_remote_bash https://Net.Check.Place
 					;;
 				tcp-quality)
 					send_stats "TcpQuality TCP重传探测脚本"
-					curl -fsSL https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh | bash
+					kpanel_run_remote_bash https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh
 					;;
 				yabs)
 					send_stats "yabs性能测试"
 					check_swap
-					curl -fsSL https://yabs.sh | bash -s -- -i -5
+					kpanel_run_remote_bash https://yabs.sh -i -5
 					;;
 				cpu)
 					send_stats "icu/gb5 CPU性能测试脚本"
 					check_swap
-					curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh | bash
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh
 					;;
 				bench)
 					send_stats "bench性能测试"
-					curl -fsSL https://bench.sh | bash
+					kpanel_run_remote_bash https://bench.sh
 					;;
 				ecs)
 					send_stats "spiritysdx融合怪测评"
@@ -9485,7 +9546,7 @@ kpanel_run_test_noninteractive() {
 					;;
 				nodequality)
 					send_stats "nodequality融合怪测评"
-					curl -fsSL https://run.NodeQuality.com | bash
+					kpanel_run_remote_bash https://run.NodeQuality.com
 					;;
 				*)
 					echo "KPANEL_TEST_ERROR unsupported test selector" >&2
@@ -9898,9 +9959,24 @@ fix_phpfpm_conf() {
 
 
 
+kpanel_run_web_recipe_cli() {
+	local selector="${1:-}"
+	local domain="${2:-}"
+	if [ "$#" -ne 2 ]; then
+		echo "用法: k <建站命令> <域名>"
+		return 64
+	fi
+	KJ_WEB_NONINTERACTIVE=1
+	KJ_WEB_RECIPE="$selector"
+	KJ_WEB_DOMAIN="$domain"
+	linux_ldnmp
+}
+
+
 linux_ldnmp() {
   while true; do
 
+	if [ "${KJ_WEB_NONINTERACTIVE:-0}" != "1" ]; then
 	clear
 	# send_stats "LDNMP建站"
 	echo -e "${gl_huang}LDNMP建站"
@@ -9926,6 +10002,7 @@ linux_ldnmp() {
 	echo -e "${gl_huang}------------------------"
 	echo -e "${gl_huang}0.   ${gl_bai}返回主菜单"
 	echo -e "${gl_huang}------------------------${gl_bai}"
+	fi
 	if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
 		sub_choice="${KJ_WEB_RECIPE:-}"
 		case "$sub_choice" in
@@ -22951,6 +23028,38 @@ else
 			ldnmp_wp "$@"
 
 			;;
+		discuz)
+			shift
+			kpanel_run_web_recipe_cli 3 "$@"
+			;;
+		kodbox)
+			shift
+			kpanel_run_web_recipe_cli 4 "$@"
+			;;
+		maccms)
+			shift
+			kpanel_run_web_recipe_cli 5 "$@"
+			;;
+		dujiaoka)
+			shift
+			kpanel_run_web_recipe_cli 6 "$@"
+			;;
+		flarum)
+			shift
+			kpanel_run_web_recipe_cli 7 "$@"
+			;;
+		typecho)
+			shift
+			kpanel_run_web_recipe_cli 8 "$@"
+			;;
+		linkstack)
+			shift
+			kpanel_run_web_recipe_cli 9 "$@"
+			;;
+		ai-prompt)
+			shift
+			kpanel_run_web_recipe_cli 27 "$@"
+			;;
 		fd|rp|反代)
 			shift
 			ldnmp_Proxy "$@"
@@ -23110,6 +23219,9 @@ else
 		   shift
 			if [ "$1" = "cache" ]; then
 				web_cache
+			elif [ "$1" = "del" ] || [ "$1" = "delete" ] || [ "$1" = "删除" ]; then
+				shift
+				web_del "$@"
 			elif [ "$1" = "sec" ]; then
 				web_security
 			elif [ "$1" = "opt" ]; then
