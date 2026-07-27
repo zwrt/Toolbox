@@ -2879,6 +2879,49 @@ kpanel_app_progress() {
 	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
 }
 
+kpanel_app_interactive_choice() {
+	local target_variable="$1"
+
+	[ "${KJ_APP_INTERACTIVE:-}" = "1" ] || return 2
+	case "${KJ_APP_ACTION:-}" in
+		install)
+			printf -v "$target_variable" '%s' "1"
+			;;
+		update)
+			kpanel_app_verified_service true || return 1
+			printf -v "$target_variable" '%s' "2"
+			;;
+		uninstall)
+			kpanel_app_verified_service true || return 1
+			printf -v "$target_variable" '%s' "3"
+			;;
+		direct_access)
+			kpanel_app_verified_service true || return 1
+			case "${KJ_APP_ACCESS_MODE:-}" in
+				direct)
+					printf -v "$target_variable" '%s' "7"
+					;;
+				domain_only)
+					printf -v "$target_variable" '%s' "8"
+					;;
+				*)
+					echo "错误: KPanel 未提供有效的应用访问模式"
+					return 1
+					;;
+			esac
+			;;
+		*)
+			echo "错误: KPanel 交互终端不支持此应用操作"
+			return 1
+			;;
+	esac
+}
+
+kpanel_web_progress() {
+	[ "${KJ_WEB_NONINTERACTIVE:-}" = "1" ] || return 0
+	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
+}
+
 kpanel_app_service_name() {
 	local service_name="${docker_app_service:-${docker_name:-}}"
 
@@ -3198,7 +3241,12 @@ while true; do
 	echo "------------------------"
 	echo "0. 返回上一级选单"
 	echo "------------------------"
-	read -e -p "请输入你的选择: " choice
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		kpanel_app_interactive_choice choice || return 1
+	else
+		read -e -p "请输入你的选择: " choice
+	fi
+	local action_status=0
 	 case $choice in
 		1)
 			setup_docker_dir
@@ -3218,7 +3266,12 @@ while true; do
 
 			install jq
 			install_docker
-			docker_rum
+			if ! docker_rum; then
+				echo -e "${gl_hong}安装失败: ${gl_bai}应用容器未能启动。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 			echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
 
 			add_app_id
@@ -3235,7 +3288,12 @@ while true; do
 		2)
 			docker rm -f "$docker_name"
 			docker rmi -f "$docker_img"
-			docker_rum
+			if ! docker_rum; then
+				echo -e "${gl_hong}更新失败: ${gl_bai}应用容器未能重新启动。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 
 			add_app_id
 			kpanel_app_restore_access_mode "$(kpanel_app_read_access_mode)"
@@ -3249,7 +3307,12 @@ while true; do
 			send_stats "更新$docker_name"
 			;;
 		3)
-			docker rm -f "$docker_name"
+			if ! docker rm -f "$docker_name"; then
+				echo -e "${gl_hong}卸载失败: ${gl_bai}应用容器未能删除。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 			docker rmi -f "$docker_img"
 			rm -rf "/home/docker/$docker_name"
 			rm -f /home/docker/${docker_name}_port.conf
@@ -3266,30 +3329,33 @@ while true; do
 			add_yuming
 			ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
 			block_container_port "$docker_name" "$ipv4_address"
-			kpanel_app_write_access_mode domain_only
+			kpanel_app_write_access_mode domain_only || action_status=1
 			;;
 
 		6)
 			echo "域名格式 example.com 不带https://"
-			web_del
+			web_del || action_status=1
 			;;
 
 		7)
 			send_stats "允许IP访问 ${docker_name}"
 			clear_container_rules "$docker_name" "$ipv4_address"
-			kpanel_app_write_access_mode direct
+			kpanel_app_write_access_mode direct || action_status=1
 			;;
 
 		8)
 			send_stats "阻止IP访问 ${docker_name}"
 			block_container_port "$docker_name" "$ipv4_address"
-			kpanel_app_write_access_mode domain_only
+			kpanel_app_write_access_mode domain_only || action_status=1
 			;;
 
 		*)
 			break
 			;;
 	 esac
+	 if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		return "$action_status"
+	 fi
 	 break_end
 done
 
@@ -3331,7 +3397,12 @@ docker_app_plus() {
 		echo "------------------------"
 		echo "0. 返回上一级选单"
 		echo "------------------------"
-		read -e -p "输入你的选择: " choice
+		if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+			kpanel_app_interactive_choice choice || return 1
+		else
+			read -e -p "输入你的选择: " choice
+		fi
+		local action_status=0
 		case $choice in
 			1)
 				setup_docker_dir
@@ -3359,6 +3430,7 @@ docker_app_plus() {
 					send_stats "$app_name 安装"
 				else
 					echo -e "${gl_hong}安装失败: ${gl_bai}未登记应用状态，请根据上方错误修复后重试。"
+					action_status=1
 				fi
 				;;
 
@@ -3369,6 +3441,7 @@ docker_app_plus() {
 					send_stats "$app_name 更新"
 				else
 					echo -e "${gl_hong}更新失败: ${gl_bai}已保留原应用登记状态。"
+					action_status=1
 				fi
 				;;
 
@@ -3380,6 +3453,7 @@ docker_app_plus() {
 					send_stats "$app_name 卸载"
 				else
 					echo -e "${gl_hong}卸载失败: ${gl_bai}已保留应用登记状态。"
+					action_status=1
 				fi
 				;;
 
@@ -3390,29 +3464,32 @@ docker_app_plus() {
 				ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
 				local docker_check_name="${docker_app_service:-$docker_name}"
 				block_container_port "$docker_check_name" "$ipv4_address"
-				kpanel_app_write_access_mode domain_only
+				kpanel_app_write_access_mode domain_only || action_status=1
 
 				;;
 			6)
 				echo "域名格式 example.com 不带https://"
-				web_del
+				web_del || action_status=1
 				;;
 			7)
 				send_stats "允许IP访问 ${docker_name}"
 				local docker_check_name="${docker_app_service:-$docker_name}"
 				clear_container_rules "$docker_check_name" "$ipv4_address"
-				kpanel_app_write_access_mode direct
+				kpanel_app_write_access_mode direct || action_status=1
 				;;
 			8)
 				send_stats "阻止IP访问 ${docker_name}"
 				local docker_check_name="${docker_app_service:-$docker_name}"
 				block_container_port "$docker_check_name" "$ipv4_address"
-				kpanel_app_write_access_mode domain_only
+				kpanel_app_write_access_mode domain_only || action_status=1
 				;;
 			*)
 				break
 				;;
 		esac
+		if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+			return "$action_status"
+		fi
 		break_end
 	done
 }
@@ -3790,25 +3867,31 @@ ldnmp_wp() {
   # wordpress
   webname="WordPress"
   yuming="${1:-}"
+  kpanel_web_progress 10 "正在校验 WordPress 域名与现有站点"
   send_stats "安装$webname"
   echo "开始部署 $webname"
   if [ -z "$yuming" ]; then
 	add_yuming
   fi
   repeat_add_yuming
+  kpanel_web_progress 20 "正在准备 kejilion.sh LDNMP 环境"
   ldnmp_install_status
 
 
+  kpanel_web_progress 35 "正在签发并配置站点证书"
   install_ssltls
   certs_status
+  kpanel_web_progress 50 "正在创建 WordPress 数据库与账号"
   add_db
 
+  kpanel_web_progress 60 "正在获取 kejilion.sh WordPress Nginx 配置"
   wget -O /home/web/conf.d/map.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/map.conf
   wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/wordpress.com.conf
   sed -i "s/yuming.com/$yuming/g" /home/web/conf.d/$yuming.conf
   nginx_http_on
 
 
+  kpanel_web_progress 75 "正在获取并配置 kejilion.sh WordPress 源码"
   cd /home/web/html
   mkdir $yuming
   cd $yuming
@@ -3824,6 +3907,7 @@ ldnmp_wp() {
   cp /home/web/html/$yuming/wordpress/wp-config-sample.php /home/web/html/$yuming/wordpress/wp-config.php
 
 
+  kpanel_web_progress 90 "正在重启 LDNMP 并核验 WordPress 站点"
   restart_ldnmp
   nginx_web_on
 
@@ -3838,6 +3922,7 @@ ldnmp_Proxy() {
 	reverseproxy="${2:-}"
 	port="${3:-}"
 
+	kpanel_web_progress 10 "正在校验反向代理域名与上游地址"
 	send_stats "安装$webname"
 	echo "开始部署 $webname"
 	if [ -z "$yuming" ]; then
@@ -3854,12 +3939,15 @@ ldnmp_Proxy() {
 	if [ -z "$port" ]; then
 		read -e -p "请输入你的反代端口: " port
 	fi
+	kpanel_web_progress 25 "正在准备 kejilion.sh Nginx 环境"
 	nginx_install_status
 
 
+	kpanel_web_progress 40 "正在签发并配置反向代理证书"
 	install_ssltls
 	certs_status
 
+	kpanel_web_progress 60 "正在获取 kejilion.sh 反向代理配置"
 	wget -O /home/web/conf.d/map.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/map.conf
 	wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/reverse-proxy-backend.conf
 
@@ -3880,6 +3968,7 @@ ldnmp_Proxy() {
 
 	update_nginx_listen_port "$yuming" "$access_port"
 
+	kpanel_web_progress 85 "正在校验并重载反向代理配置"
 	nginx_http_on
 	docker exec nginx nginx -s reload
 	nginx_web_on
@@ -5156,6 +5245,246 @@ fi
 
 chattr +i /etc/resolv.conf
 
+}
+
+kpanel_dns_is_ipv4() {
+	local value="$1"
+	local first second third fourth extra octet
+	IFS=. read -r first second third fourth extra <<< "$value"
+	[ -z "$extra" ] || return 1
+	for octet in "$first" "$second" "$third" "$fourth"; do
+		[[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+		[ "$((10#$octet))" -le 255 ] || return 1
+	done
+}
+
+kpanel_dns_is_ipv6() {
+	local value="$1"
+	[ ${#value} -le 45 ] &&
+	[[ "$value" == *:* ]] &&
+	[[ "$value" =~ ^[0-9A-Fa-f:.]+$ ]]
+}
+
+kpanel_dns_restore_file() {
+	local target="$1"
+	local backup="$2"
+	local existed="$3"
+	local immutable="$4"
+
+	chattr -i "$target" >/dev/null 2>&1 || true
+	if [ "$existed" = "true" ]; then
+		cp -p "$backup" "$target" || return 1
+	else
+		rm -f "$target" || return 1
+	fi
+	if [ "$immutable" = "true" ]; then
+		chattr +i "$target" >/dev/null 2>&1 || return 1
+	fi
+}
+
+kpanel_dns_write_static() {
+	local target="/etc/resolv.conf"
+	local parent desired backup old_mode old_immutable="false" existed="false"
+	local expected="" value
+
+	if [ -L "$target" ]; then
+		target="$(readlink -f "$target")"
+		[ -n "$target" ] || {
+			echo "错误: /etc/resolv.conf 是失效的符号链接"
+			return 1
+		}
+	fi
+	parent="$(dirname "$target")"
+	[ -d "$parent" ] || {
+		echo "错误: DNS 配置目录不存在"
+		return 1
+	}
+	command -v chattr >/dev/null 2>&1 || {
+		echo "错误: chattr 不可用，无法保持 kejilion.sh DNS 生命周期语义"
+		return 1
+	}
+
+	desired="$(mktemp "${parent}/.resolv.conf.kpanel.XXXXXX")" || return 1
+	backup="$(mktemp "${parent}/.resolv.conf.backup.XXXXXX")" || {
+		rm -f "$desired"
+		return 1
+	}
+	for value in "$@"; do
+		expected="${expected}nameserver ${value}"$'\n'
+	done
+	printf '%s' "$expected" > "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+
+	if [ -f "$target" ]; then
+		existed="true"
+		cp -p "$target" "$backup" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		old_mode="$(stat -c '%a' "$target" 2>/dev/null || printf '644')"
+		chmod "$old_mode" "$desired" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		chown --reference="$target" "$desired" >/dev/null 2>&1 || true
+		if lsattr -d "$target" 2>/dev/null | awk '{print $1}' | grep -q 'i'; then
+			old_immutable="true"
+		fi
+		if [ "$(cat "$target")"$'\n' = "$expected" ]; then
+			chattr +i "$target" >/dev/null 2>&1 || {
+				rm -f "$desired" "$backup"
+				echo "错误: 无法锁定 DNS 配置"
+				return 1
+			}
+			rm -f "$desired" "$backup"
+			echo "KPANEL_DNS_MANAGER resolv.conf"
+			echo "KPANEL_DNS_RESULT unchanged"
+			return 0
+		fi
+		chattr -i "$target" >/dev/null 2>&1 || {
+			rm -f "$desired" "$backup"
+			echo "错误: 无法解除现有 DNS 配置锁定"
+			return 1
+		}
+	else
+		chmod 644 "$desired" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+	fi
+
+	if ! mv -f "$desired" "$target" ||
+		! chattr +i "$target" >/dev/null 2>&1 ||
+		[ "$(cat "$target")"$'\n' != "$expected" ]; then
+		kpanel_dns_restore_file "$target" "$backup" "$existed" "$old_immutable" || {
+			rm -f "$desired" "$backup"
+			echo "错误: DNS 写入失败且回滚失败，需要人工检查"
+			return 1
+		}
+		rm -f "$desired" "$backup"
+		echo "错误: DNS 写入或回读验证失败，已恢复原配置"
+		return 1
+	fi
+	rm -f "$backup"
+	echo "KPANEL_DNS_MANAGER resolv.conf"
+	echo "KPANEL_DNS_RESULT applied"
+}
+
+kpanel_dns_write_systemd_resolved() {
+	local config="/etc/systemd/resolved.conf.d/90-kpanel.conf"
+	local parent desired backup existed="false" expected
+
+	command -v systemctl >/dev/null 2>&1 || {
+		echo "错误: systemctl 不可用"
+		return 1
+	}
+	parent="$(dirname "$config")"
+	mkdir -p "$parent" || return 1
+	desired="$(mktemp "${parent}/.90-kpanel.conf.kpanel.XXXXXX")" || return 1
+	backup="$(mktemp "${parent}/.90-kpanel.conf.backup.XXXXXX")" || {
+		rm -f "$desired"
+		return 1
+	}
+	expected="[Resolve]"$'\n'"DNS=$*"$'\n'"FallbackDNS="$'\n'
+	printf '%s' "$expected" > "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+	chmod 644 "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+	if [ -f "$config" ]; then
+		existed="true"
+		cp -p "$config" "$backup" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		if [ "$(cat "$config")"$'\n' = "$expected" ]; then
+			rm -f "$desired" "$backup"
+			echo "KPANEL_DNS_MANAGER systemd-resolved"
+			echo "KPANEL_DNS_RESULT unchanged"
+			return 0
+		fi
+	fi
+	if ! mv -f "$desired" "$config" ||
+		! systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 ||
+		[ "$(cat "$config")"$'\n' != "$expected" ]; then
+		if [ "$existed" = "true" ]; then
+			cp -p "$backup" "$config" || {
+				rm -f "$desired" "$backup"
+				echo "错误: systemd-resolved DNS 回滚失败，需要人工检查"
+				return 1
+			}
+		else
+			rm -f "$config"
+		fi
+		systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || {
+			rm -f "$desired" "$backup"
+			echo "错误: systemd-resolved DNS 已恢复文件，但服务重载失败，需要人工检查"
+			return 1
+		}
+		rm -f "$desired" "$backup"
+		echo "错误: systemd-resolved DNS 写入或回读验证失败，已恢复原配置"
+		return 1
+	fi
+	rm -f "$backup"
+	echo "KPANEL_DNS_MANAGER systemd-resolved"
+	echo "KPANEL_DNS_RESULT applied"
+}
+
+kpanel_set_dns_noninteractive() {
+	[ "${KJ_DNS_NONINTERACTIVE:-}" = "1" ] || return 2
+	[ "$EUID" -eq 0 ] || {
+		echo "错误: KPanel DNS 协议必须以 root 运行"
+		return 1
+	}
+	[ "$#" -ge 1 ] && [ "$#" -le 4 ] || {
+		echo "错误: DNS 地址数量必须为 1-4 个"
+		return 1
+	}
+
+	local ipv4_count=0 ipv6_count=0 value previous
+	local normalized=()
+	for value in "$@"; do
+		[ -n "$value" ] && [ ${#value} -le 45 ] || {
+			echo "错误: DNS 地址为空或过长"
+			return 1
+		}
+		if kpanel_dns_is_ipv4 "$value"; then
+			ipv4_count=$((ipv4_count + 1))
+			[ "$ipv4_count" -le 2 ] || {
+				echo "错误: IPv4 DNS 地址最多 2 个"
+				return 1
+			}
+		elif kpanel_dns_is_ipv6 "$value"; then
+			ipv6_count=$((ipv6_count + 1))
+			[ "$ipv6_count" -le 2 ] || {
+				echo "错误: IPv6 DNS 地址最多 2 个"
+				return 1
+			}
+		else
+			echo "错误: 无效的 DNS 地址"
+			return 1
+		fi
+		for previous in "${normalized[@]}"; do
+			[ "$previous" = "$value" ] && {
+				echo "错误: DNS 地址不能重复"
+				return 1
+			}
+		done
+		normalized+=("$value")
+	done
+
+	local resolver_target
+	resolver_target="$(readlink /etc/resolv.conf 2>/dev/null || true)"
+	if [[ "${resolver_target,,}" == *systemd/resolve* ]]; then
+		kpanel_dns_write_systemd_resolved "${normalized[@]}"
+	else
+		kpanel_dns_write_static "${normalized[@]}"
+	fi
 }
 
 
@@ -9020,6 +9349,159 @@ linux_docker() {
 
 
 
+kpanel_test_catalog() {
+	cat <<'KPANEL_TEST_CATALOG'
+KPANEL_TEST_CATEGORY	access	IP 与解锁
+KPANEL_TEST_CATEGORY	network	网络线路
+KPANEL_TEST_CATEGORY	hardware	硬件性能
+KPANEL_TEST_CATEGORY	comprehensive	综合评测
+KPANEL_TEST_ITEM	chatgpt	access	ChatGPT 解锁检测	检测当前出口 IP 的 ChatGPT 可用性	https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh	2	light
+KPANEL_TEST_ITEM	region	access	Region 流媒体解锁	检测常见流媒体服务的地区解锁状态	https://check.unlock.media	5	network
+KPANEL_TEST_ITEM	media	access	yeahwu 流媒体检测	检测常见流媒体与 AI 服务的可用区域	https://github.com/yeahwu/check/raw/main/check.sh	5	network
+KPANEL_TEST_ITEM	ip-quality	access	IP 质量体检	检测 IP 风险、信誉、邮件与流媒体质量	https://IP.Check.Place	8	network
+KPANEL_TEST_ITEM	besttrace	network	BestTrace 三网回程	检测三网回程延迟和路由	https://git.io/besttrace	8	network
+KPANEL_TEST_ITEM	mtr	network	MTR 三网回程	使用 MTR 检测三网回程线路	https://github.com/zhucaidan/mtr_trace/raw/main/mtr_trace.sh	8	network
+KPANEL_TEST_ITEM	superspeed	network	SuperSpeed 三网测速	执行国内三网节点带宽测试	https://git.io/superspeed_uxh	15	intensive
+KPANEL_TEST_ITEM	nxtrace-fast	network	NextTrace 快速回程	执行 TCP 快速回程路由测试	https://nxtrace.org/nt	8	network
+KPANEL_TEST_ITEM	backtrace	network	三网线路测试	检测电信、联通和移动回程线路	https://github.com/ludashi2020/backtrace/raw/main/install.sh	8	network
+KPANEL_TEST_ITEM	speedtest	network	多功能测速	运行 i-abc 多节点网络测速	https://github.com/i-abc/Speedtest/raw/main/speedtest.sh	15	intensive
+KPANEL_TEST_ITEM	net-quality	network	网络质量体检	检测延迟、抖动、丢包和网络质量	https://Net.Check.Place	10	network
+KPANEL_TEST_ITEM	tcp-quality	network	TCP 重传探测	检测 TCP 重传和连接质量	https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh	10	network
+KPANEL_TEST_ITEM	yabs	hardware	YABS 性能测试	测试 CPU、磁盘与网络；无 Swap 时按脚本创建 1 GiB /swapfile	https://yabs.sh	30	intensive
+KPANEL_TEST_ITEM	cpu	hardware	CPU 性能测试	运行 Geekbench 5；无 Swap 时按脚本创建 1 GiB /swapfile	https://raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh	30	intensive
+KPANEL_TEST_ITEM	bench	comprehensive	Bench 综合测试	输出系统信息、磁盘与网络综合结果	https://bench.sh	15	intensive
+KPANEL_TEST_ITEM	ecs	comprehensive	融合怪综合测评	运行 spiritLHLS ECS 综合性能与质量测评	https://github.com/spiritLHLS/ecs/raw/main/ecs.sh	45	intensive
+KPANEL_TEST_ITEM	nodequality	comprehensive	NodeQuality 综合测评	运行 NodeQuality 节点质量综合测试	https://run.NodeQuality.com	30	intensive
+KPANEL_TEST_CATALOG
+}
+
+kpanel_run_test_noninteractive() {
+	[ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ] || return 2
+
+	local action="${1:-list}"
+	local selector="${2:-}"
+	case "$action" in
+		list)
+			[ "$#" -eq 1 ] || {
+				echo "KPANEL_TEST_ERROR list does not accept arguments" >&2
+				return 64
+			}
+			kpanel_test_catalog
+			;;
+		run)
+			[ "$#" -eq 2 ] || {
+				echo "KPANEL_TEST_ERROR run requires one fixed test selector" >&2
+				return 64
+			}
+			echo "KPANEL_TEST_START ${selector}"
+			(
+				set -o pipefail
+				case "$selector" in
+				chatgpt)
+					send_stats "ChatGPT解锁状态检测"
+					curl -fsSL https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh | bash
+					;;
+				region)
+					send_stats "Region流媒体解锁测试"
+					curl -fsSL https://check.unlock.media | bash
+					;;
+				media)
+					send_stats "yeahwu流媒体解锁检测"
+					install wget
+					wget -qO- ${gh_proxy}github.com/yeahwu/check/raw/main/check.sh | bash
+					;;
+				ip-quality)
+					send_stats "xykt_IP质量体检脚本"
+					curl -fsSL https://IP.Check.Place | bash
+					;;
+				besttrace)
+					send_stats "besttrace三网回程延迟路由测试"
+					install wget
+					wget -qO- https://git.io/besttrace | bash
+					;;
+				mtr)
+					send_stats "mtr_trace三网回程线路测试"
+					curl -fsSL ${gh_proxy}raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh | bash
+					;;
+				superspeed)
+					send_stats "Superspeed三网测速"
+					curl -fsSL https://git.io/superspeed_uxh | bash
+					;;
+				nxtrace-fast)
+					send_stats "nxtrace快速回程测试脚本"
+					curl -fsSL https://nxtrace.org/nt | bash
+					nexttrace --fast-trace --tcp
+					;;
+				backtrace)
+					send_stats "ludashi2020三网线路测试"
+					curl -fsSL ${gh_proxy}raw.githubusercontent.com/ludashi2020/backtrace/main/install.sh | sh
+					;;
+				speedtest)
+					send_stats "i-abc多功能测速脚本"
+					curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/Speedtest/main/speedtest.sh | bash
+					;;
+				net-quality)
+					send_stats "网络质量测试脚本"
+					curl -fsSL https://Net.Check.Place | bash
+					;;
+				tcp-quality)
+					send_stats "TcpQuality TCP重传探测脚本"
+					curl -fsSL https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh | bash
+					;;
+				yabs)
+					send_stats "yabs性能测试"
+					check_swap
+					curl -fsSL https://yabs.sh | bash -s -- -i -5
+					;;
+				cpu)
+					send_stats "icu/gb5 CPU性能测试脚本"
+					check_swap
+					curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh | bash
+					;;
+				bench)
+					send_stats "bench性能测试"
+					curl -fsSL https://bench.sh | bash
+					;;
+				ecs)
+					send_stats "spiritysdx融合怪测评"
+					local test_workspace
+					test_workspace="$(mktemp -d)"
+					(
+						cd "$test_workspace" &&
+						curl -fsSL ${gh_proxy}github.com/spiritLHLS/ecs/raw/main/ecs.sh -o ecs.sh &&
+						chmod +x ecs.sh &&
+						bash ecs.sh
+					)
+					local ecs_status=$?
+					rm -f "$test_workspace/ecs.sh"
+					rmdir "$test_workspace" 2>/dev/null || true
+					[ "$ecs_status" -eq 0 ] || return "$ecs_status"
+					;;
+				nodequality)
+					send_stats "nodequality融合怪测评"
+					curl -fsSL https://run.NodeQuality.com | bash
+					;;
+				*)
+					echo "KPANEL_TEST_ERROR unsupported test selector" >&2
+					exit 64
+					;;
+				esac
+			)
+			local command_status=$?
+			if [ "$command_status" -ne 0 ]; then
+				echo "KPANEL_TEST_RESULT failed ${selector}" >&2
+				return "$command_status"
+			fi
+			echo "KPANEL_TEST_RESULT succeeded ${selector}"
+			;;
+		*)
+			echo "KPANEL_TEST_ERROR unsupported action" >&2
+			return 64
+			;;
+	esac
+}
+
+
 linux_test() {
 
 	while true; do
@@ -9167,7 +9649,7 @@ linux_test() {
 			  clear
 			  send_stats "icu/gb5 CPU性能测试脚本"
 			  check_swap
-			  bash <(curl -sL bash.icu/gb5)
+			  bash <(curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh)
 			  ;;
 
 		  31)
@@ -9441,7 +9923,7 @@ linux_ldnmp() {
 	if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
 		sub_choice="${KJ_WEB_RECIPE:-}"
 		case "$sub_choice" in
-			3|4|5|6|7|8|9|27) ;;
+			2|3|4|5|6|7|8|9|23|27) ;;
 			*)
 				echo "KPANEL_PROGRESS 100 不支持的 KJ_WEB_RECIPE"
 				return 1
@@ -9457,6 +9939,18 @@ linux_ldnmp() {
 			echo "KPANEL_PROGRESS 100 域名已存在，拒绝覆盖现有产物"
 			return 1
 		fi
+		if [ "$sub_choice" = "23" ]; then
+			if [ -z "${KJ_WEB_PROXY_HOST:-}" ] ||
+				! printf '%s' "$KJ_WEB_PROXY_HOST" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+				echo "KPANEL_PROGRESS 100 KJ_WEB_PROXY_HOST 不是有效的 IP 或主机名"
+				return 1
+			fi
+			if ! printf '%s' "${KJ_WEB_PROXY_PORT:-}" | grep -Eq '^[0-9]{1,5}$' ||
+				[ "$KJ_WEB_PROXY_PORT" -lt 1 ] || [ "$KJ_WEB_PROXY_PORT" -gt 65535 ]; then
+				echo "KPANEL_PROGRESS 100 KJ_WEB_PROXY_PORT 不是有效端口"
+				return 1
+			fi
+		fi
 		echo "KPANEL_PROGRESS 5 正在启动 kejilion.sh 原生一键建站流程"
 	else
 		read -e -p "请输入你的选择: " sub_choice
@@ -9469,7 +9963,7 @@ linux_ldnmp() {
 	  ldnmp_install_all
 		;;
 	  2)
-	  ldnmp_wp
+	  ldnmp_wp "${KJ_WEB_DOMAIN:-}"
 		;;
 
 	  3)
@@ -9970,7 +10464,7 @@ linux_ldnmp() {
 		;;
 
 	  23)
-	  ldnmp_Proxy
+	  ldnmp_Proxy "${KJ_WEB_DOMAIN:-}" "${KJ_WEB_PROXY_HOST:-}" "${KJ_WEB_PROXY_PORT:-}"
 	  find_container_by_host_port "$port"
 	  if [ -z "$docker_name" ]; then
 		close_port "$port"
@@ -10436,8 +10930,11 @@ linux_ldnmp() {
 		echo "无效的输入!"
 	esac
 	if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
-		if [ ! -f "/home/web/conf.d/${KJ_WEB_DOMAIN}.conf" ] ||
-			[ ! -d "/home/web/html/${KJ_WEB_DOMAIN}" ]; then
+		if [ ! -f "/home/web/conf.d/${KJ_WEB_DOMAIN}.conf" ]; then
+			echo "KPANEL_PROGRESS 100 kejilion.sh 建站产物不完整"
+			return 1
+		fi
+		if [ "$sub_choice" != "23" ] && [ ! -d "/home/web/html/${KJ_WEB_DOMAIN}" ]; then
 			echo "KPANEL_PROGRESS 100 kejilion.sh 建站产物不完整"
 			return 1
 		fi
@@ -19833,6 +20330,9 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
 		return
 	fi
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		return
+	fi
 	break_end
 	sub_choice=""
 
@@ -22478,6 +22978,20 @@ else
 			shift
 			send_stats "快速设置时区"
 			set_timedate "$@"
+			;;
+
+		dns)
+			shift
+			kpanel_set_dns_noninteractive "$@"
+			;;
+
+		test|check|体检|测试)
+			shift
+			if [ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ]; then
+				kpanel_run_test_noninteractive "$@"
+			else
+				linux_test
+			fi
 			;;
 
 
