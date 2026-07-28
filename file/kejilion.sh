@@ -20,6 +20,7 @@ kpanel_protocol_active() {
 	[ "${KJ_DNS_NONINTERACTIVE:-}" = "1" ] ||
 	[ "${KJ_F2B_NONINTERACTIVE:-}" = "1" ] ||
 	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_APP_INTERACTIVE:-}" = "1" ] ||
 	[ "${KJ_WEB_NONINTERACTIVE:-}" = "1" ] ||
 	[ "${KJ_WEB_INTERACTIVE:-}" = "1" ] ||
 	[ "${KJ_LDNMP_NONINTERACTIVE:-}" = "1" ] ||
@@ -2601,19 +2602,18 @@ check_docker_image_update() {
 	local container_name=$1
 	update_status=""
 
-	# 1. 区域检查
-	local country=$(curl -s --max-time 2 ipinfo.io/country)
-	[[ "$country" == "CN" ]] && return
-
-	# 2. 获取本地镜像信息
-	local container_info=$(docker inspect --format='{{.Created}},{{.Config.Image}}' "$container_name" 2>/dev/null)
+	# 1. 获取容器及本地镜像信息。更新检测不再按地区跳过。
+	local container_info
+	container_info=$(docker inspect --format='{{.Created}},{{.Config.Image}},{{.Image}}' "$container_name" 2>/dev/null)
 	[[ -z "$container_info" ]] && return
 
-	local container_created=$(echo "$container_info" | cut -d',' -f1)
-	local full_image_name=$(echo "$container_info" | cut -d',' -f2)
-	local container_created_ts=$(date -d "$container_created" +%s 2>/dev/null)
+	local container_created full_image_name container_image_id container_created_ts
+	container_created=$(echo "$container_info" | cut -d',' -f1)
+	full_image_name=$(echo "$container_info" | cut -d',' -f2)
+	container_image_id=$(echo "$container_info" | cut -d',' -f3)
+	container_created_ts=$(date -d "$container_created" +%s 2>/dev/null)
 
-	# 3. 智能路由判断
+	# 2. 智能路由判断
 	if [[ "$full_image_name" == ghcr.io* ]]; then
 		# --- 场景 A: 镜像在 GitHub (ghcr.io) ---
 		# 提取仓库路径，例如 ghcr.io/onexru/oneimg -> onexru/oneimg
@@ -2629,19 +2629,45 @@ check_docker_image_update() {
 
 	else
 		# --- 场景 C: 标准 Docker Hub ---
-		local image_repo=${full_image_name%%:*}
-		local image_tag=${full_image_name##*:}
-		[[ "$image_repo" == "$image_tag" ]] && image_tag="latest"
+		local docker_ref image_repo image_tag api_payload remote_digest local_digest
+		docker_ref=${full_image_name#docker.io/}
+		docker_ref=${docker_ref#index.docker.io/}
+		docker_ref=${docker_ref#registry-1.docker.io/}
+		if [[ "$docker_ref" == *@* ]]; then
+			image_repo=${docker_ref%@*}
+			image_tag="latest"
+		elif [[ "${docker_ref##*/}" == *:* ]]; then
+			image_repo=${docker_ref%:*}
+			image_tag=${docker_ref##*:}
+		else
+			image_repo=$docker_ref
+			image_tag="latest"
+		fi
 		[[ "$image_repo" != */* ]] && image_repo="library/$image_repo"
 
 		local api_url="https://hub.docker.com/v2/repositories/$image_repo/tags/$image_tag"
-		local remote_date=$(curl -s "$api_url" | jq -r '.last_updated' 2>/dev/null)
+		api_payload=$(curl -fsSL --max-time 8 "$api_url" 2>/dev/null)
+		remote_digest=$(printf '%s' "$api_payload" | jq -r '.digest // empty' 2>/dev/null)
+		local remote_date
+		remote_date=$(printf '%s' "$api_payload" | jq -r '.last_updated // empty' 2>/dev/null)
+		local_digest=$(
+			docker image inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' "$container_image_id" 2>/dev/null |
+				sed -n 's/^.*@\(sha256:[a-f0-9]\{64\}\)$/\1/p' |
+				head -n 1
+		)
+		if [[ "$remote_digest" =~ ^sha256:[a-f0-9]{64}$ && "$local_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+			if [[ "$remote_digest" != "$local_digest" ]]; then
+				update_status="${gl_huang}发现新版本!${gl_bai}"
+			fi
+			return
+		fi
 	fi
 
-	# 4. 时间戳对比
+	# 3. Registry 未提供可比较摘要时，兼容使用发布时间判断。
 	if [[ -n "$remote_date" && "$remote_date" != "null" ]]; then
 		local remote_ts=$(date -d "$remote_date" +%s 2>/dev/null)
-		if [[ $container_created_ts -lt $remote_ts ]]; then
+		if [[ "$container_created_ts" =~ ^[0-9]+$ && "$remote_ts" =~ ^[0-9]+$ ]] &&
+			[[ $container_created_ts -lt $remote_ts ]]; then
 			update_status="${gl_huang}发现新版本!${gl_bai}"
 		fi
 	fi
@@ -2919,6 +2945,21 @@ kpanel_app_progress() {
 	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
 }
 
+kpanel_app_interactive_manage_choice() {
+	local target_variable="$1"
+	local selected_choice=""
+
+	if [ "${KJ_APP_MARKER_RECOVERY:-0}" != "1" ]; then
+		kpanel_app_verified_service true || return 1
+	fi
+	read -r -e -p "请输入你的选择: " selected_choice || return 1
+	if [[ ! "$selected_choice" =~ ^[0-9]+$ ]]; then
+		echo "错误: KPanel 应用管理终端只接受菜单编号"
+		return 1
+	fi
+	printf -v "$target_variable" '%s' "$selected_choice"
+}
+
 kpanel_app_interactive_choice() {
 	local target_variable="$1"
 
@@ -2934,6 +2975,9 @@ kpanel_app_interactive_choice() {
 		uninstall)
 			kpanel_app_verified_service true || return 1
 			printf -v "$target_variable" '%s' "3"
+			;;
+		manage)
+			kpanel_app_interactive_manage_choice "$target_variable"
 			;;
 		direct_access)
 			kpanel_app_verified_service true || return 1
@@ -3112,12 +3156,49 @@ kpanel_app_install_port() {
 		echo "错误: KPanel 应用端口必须在 1-65535 之间"
 		return 1
 	fi
-	if ss -tuln 2>/dev/null | grep -q ":${requested_port} "; then
+	if kpanel_app_port_in_use "$requested_port"; then
 		echo "错误: 端口 ${requested_port} 已被占用"
 		return 1
 	fi
 	docker_port="$requested_port"
 	return 0
+}
+
+kpanel_app_port_in_use() {
+	local requested_port="$1"
+
+	ss -H -lntu 2>/dev/null |
+		awk -v requested_port="$requested_port" '
+			{
+				local_address = $5
+				sub(/^.*:/, "", local_address)
+				if (local_address == requested_port) {
+					found = 1
+				}
+			}
+			END { exit(found ? 0 : 1) }
+		'
+}
+
+kpanel_app_choose_install_port() {
+	local app_port=""
+
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ] && [ -n "${KJ_APP_PORT:-}" ]; then
+		kpanel_app_install_port
+		return $?
+	fi
+	while true; do
+		read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
+		app_port=${app_port:-${docker_port}}
+
+		if kpanel_app_port_in_use "$app_port"; then
+			echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
+			send_stats "应用端口已被占用"
+		else
+			docker_port="$app_port"
+			return 0
+		fi
+	done
 }
 
 kpanel_run_docker_app_install() {
@@ -3188,10 +3269,14 @@ kpanel_run_docker_app_action() {
 
 	kpanel_app_progress 5 "正在核对 kejilion.sh 安装标记与主容器"
 	service_name="$(kpanel_app_verified_service true)" || return 1
-	grep -qxF "${app_id}" /home/docker/appno.txt 2>/dev/null || {
-		echo "错误: 未发现 kejilion.sh 应用安装标记"
-		return 1
-	}
+	if ! grep -qxF "${app_id}" /home/docker/appno.txt 2>/dev/null; then
+		if [ "${KJ_APP_RECONCILE_MARKER:-0}" != "1" ]; then
+			echo "错误: 未发现 kejilion.sh 应用安装标记"
+			return 1
+		fi
+		kpanel_app_progress 10 "正在修复 kejilion.sh 应用安装标记"
+		add_app_id || return 1
+	fi
 
 	case "$action" in
 		update)
@@ -3296,18 +3381,7 @@ while true; do
 		1)
 			setup_docker_dir
 			check_disk_space $app_size /home/docker
-			while true; do
-				read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
-				local app_port=${app_port:-${docker_port}}
-
-				if ss -tuln | grep -q ":$app_port "; then
-					echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
-					send_stats "应用端口已被占用"
-				else
-					local docker_port=$app_port
-					break
-				fi
-			done
+			kpanel_app_choose_install_port || return 1
 
 			install jq
 			install_docker
@@ -3453,18 +3527,7 @@ docker_app_plus() {
 				setup_docker_dir
 				check_disk_space $app_size /home/docker
 
-				while true; do
-					read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
-					local app_port=${app_port:-${docker_port}}
-
-					if ss -tuln | grep -q ":$app_port "; then
-						echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
-						send_stats "应用端口已被占用"
-					else
-						local docker_port=$app_port
-						break
-					fi
-				done
+				kpanel_app_choose_install_port || return 1
 
 				install jq
 				install_docker
