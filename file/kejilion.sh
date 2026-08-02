@@ -6648,12 +6648,12 @@ bbrv3() {
 				elif [ -r /etc/os-release ]; then
 					os_codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
 				fi
-				
+
 				# 兼容官方已移除的老系统代号（回退使用 releases 尝试旧包库）
 				if ! echo "bookworm trixie forky sid noble plucky questing resolute faye gigi wilma xia zara zena" | grep -qw "$os_codename"; then
 					os_codename="releases"
 				fi
-				
+
 				# 官方已彻底移除对 jammy, focal, bullseye 等老系统的 apt 支持
 				if echo "jammy focal bullseye buster" | grep -qw "$os_codename" || [ "$os_codename" = "releases" ]; then
 					echo -e "${gl_hong}XanMod 官方已停止对当前系统($os_codename)的 APT 源支持，请升级至 Debian12 / Ubuntu24 或更高版本。${gl_bai}"
@@ -9733,6 +9733,7 @@ kpanel_node_paths() {
 	KPANEL_NODE_UPDATER="${KPANEL_NODE_HOME}/update.sh"
 	KPANEL_NODE_CONFIG_DIR="/etc/kejilion-node"
 	KPANEL_NODE_CONFIG="${KPANEL_NODE_CONFIG_DIR}/node.json"
+	KPANEL_NODE_SYSTEMCTL="$(type -P systemctl 2>/dev/null || true)"
 }
 
 kpanel_node_preflight() {
@@ -9740,16 +9741,27 @@ kpanel_node_preflight() {
 		echo "KPanel 轻量节点安装需要 root 权限。" >&2
 		return 1
 	}
-	for command_name in curl sha256sum systemctl install mktemp; do
+	for command_name in curl sha256sum mktemp; do
 		command -v "$command_name" >/dev/null 2>&1 || {
 			echo "缺少必要命令: ${command_name}" >&2
 			return 1
 		}
 	done
-	command -v useradd >/dev/null 2>&1 || {
-		echo "缺少必要命令: useradd" >&2
+	[ -n "$KPANEL_NODE_SYSTEMCTL" ] && [ -x "$KPANEL_NODE_SYSTEMCTL" ] || {
+		echo "缺少必要命令: systemctl" >&2
 		return 1
 	}
+	KPANEL_NODE_INSTALL_BIN="$(type -P install 2>/dev/null || true)"
+	[ -n "$KPANEL_NODE_INSTALL_BIN" ] && [ -x "$KPANEL_NODE_INSTALL_BIN" ] || {
+		echo "缺少必要命令: install (coreutils)" >&2
+		return 1
+	}
+	if ! command -v useradd >/dev/null 2>&1 &&
+		! command -v systemd-sysusers >/dev/null 2>&1 &&
+		! command -v adduser >/dev/null 2>&1; then
+		echo "缺少系统账户创建工具: useradd、systemd-sysusers 或 adduser" >&2
+		return 1
+	fi
 	[ -d /run/systemd/system ] || {
 		echo "当前系统未运行 systemd，无法安装 KPanel 轻量节点。" >&2
 		return 1
@@ -9764,8 +9776,47 @@ kpanel_node_preflight() {
 	esac
 }
 
+kpanel_node_ensure_account() {
+	local nologin_shell="/usr/sbin/nologin" sysusers_config=""
+	if id kejilion-node >/dev/null 2>&1; then
+		[ "$(id -gn kejilion-node 2>/dev/null)" = "kejilion-node" ] || {
+			echo "现有 kejilion-node 账户的主组不安全，拒绝继续。" >&2
+			return 1
+		}
+		return 0
+	fi
+	[ -x "$nologin_shell" ] || nologin_shell="/sbin/nologin"
+	[ -x "$nologin_shell" ] || nologin_shell="/bin/false"
+
+	if command -v useradd >/dev/null 2>&1; then
+		useradd --system --no-create-home --home-dir /nonexistent --shell "$nologin_shell" kejilion-node || return 1
+	elif command -v systemd-sysusers >/dev/null 2>&1; then
+		sysusers_config="$(mktemp /tmp/kejilion-node-sysusers.XXXXXX)" || return 1
+		printf 'u kejilion-node - "KPanel Lightweight Monitoring Node" /nonexistent %s\n' "$nologin_shell" >"$sysusers_config"
+		if ! systemd-sysusers "$sysusers_config"; then
+			rm -f -- "$sysusers_config"
+			return 1
+		fi
+		rm -f -- "$sysusers_config"
+	elif adduser --help 2>&1 | grep -q -- '--system'; then
+		adduser --system --group --no-create-home --home /nonexistent --shell "$nologin_shell" kejilion-node || return 1
+	else
+		command -v addgroup >/dev/null 2>&1 || {
+			echo "缺少系统组创建工具: addgroup" >&2
+			return 1
+		}
+		addgroup -S kejilion-node >/dev/null 2>&1 || true
+		adduser -S -D -H -h /nonexistent -s "$nologin_shell" -G kejilion-node kejilion-node || return 1
+	fi
+
+	id kejilion-node >/dev/null 2>&1 && [ "$(id -gn kejilion-node 2>/dev/null)" = "kejilion-node" ] || {
+		echo "KPanel 轻量节点低权限账户创建失败。" >&2
+		return 1
+	}
+}
+
 kpanel_node_write_updater() {
-	install -d -o root -g root -m 0755 "$KPANEL_NODE_HOME" || return 1
+	"$KPANEL_NODE_INSTALL_BIN" -d -o root -g root -m 0755 "$KPANEL_NODE_HOME" || return 1
 	cat >"$KPANEL_NODE_UPDATER" <<'KPANEL_NODE_UPDATE'
 #!/bin/bash
 set -euo pipefail
@@ -9925,16 +9976,30 @@ KPANEL_NODE_UPDATE_TIMER
 }
 
 kpanel_node_cleanup_failed_join() {
-	systemctl disable --now kejilion-node.service kejilion-node-update.timer >/dev/null 2>&1 || true
+	if [ -x "$KPANEL_NODE_SYSTEMCTL" ]; then
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-update.timer >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-update.timer >/dev/null 2>&1 || true
+	fi
 	rm -f -- /etc/systemd/system/kejilion-node.service \
 		/etc/systemd/system/kejilion-node-update.service \
 		/etc/systemd/system/kejilion-node-update.timer
 	rm -rf -- "$KPANEL_NODE_HOME" "$KPANEL_NODE_CONFIG_DIR"
-	systemctl daemon-reload >/dev/null 2>&1 || true
+	[ ! -x "$KPANEL_NODE_SYSTEMCTL" ] || "$KPANEL_NODE_SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+}
+
+kpanel_node_activate() {
+	"$KPANEL_NODE_SYSTEMCTL" daemon-reload &&
+		"$KPANEL_NODE_SYSTEMCTL" enable kejilion-node.service &&
+		"$KPANEL_NODE_SYSTEMCTL" enable kejilion-node-update.timer &&
+		"$KPANEL_NODE_SYSTEMCTL" start kejilion-node.service &&
+		"$KPANEL_NODE_SYSTEMCTL" start kejilion-node-update.timer &&
+		"$KPANEL_NODE_SYSTEMCTL" is-active kejilion-node.service >/dev/null
 }
 
 kpanel_node_join() {
-	local token="${1:-}" node_name
+	local token="${1:-}" node_name resume_enrollment=false
 	kpanel_node_paths
 	kpanel_node_preflight || return 1
 	case "$token" in
@@ -9945,37 +10010,39 @@ kpanel_node_join() {
 		echo "轻量节点接入授权无效。" >&2
 		return 2
 	}
-	[ ! -e "$KPANEL_NODE_CONFIG" ] || {
-		echo "本机已接入一个 KPanel 中心；请先执行 k kpanel node uninstall。" >&2
-		return 1
-	}
-	if ! id kejilion-node >/dev/null 2>&1; then
-		useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin kejilion-node || return 1
+	if [ -e "$KPANEL_NODE_CONFIG" ]; then
+		if [ -f "$KPANEL_NODE_CONFIG" ] && [ ! -L "$KPANEL_NODE_CONFIG" ] && [ -x "$KPANEL_NODE_BINARY" ]; then
+			resume_enrollment=true
+			echo "检测到已完成的节点授权，继续启用本机服务。"
+		else
+			echo "本机存在不完整的 KPanel 节点配置；请先执行 k kpanel node uninstall。" >&2
+			return 1
+		fi
 	fi
-	install -d -o root -g kejilion-node -m 0750 "$KPANEL_NODE_CONFIG_DIR" || return 1
+	kpanel_node_ensure_account || return 1
+	"$KPANEL_NODE_INSTALL_BIN" -d -o root -g kejilion-node -m 0750 "$KPANEL_NODE_CONFIG_DIR" || return 1
 	if ! kpanel_node_write_updater || ! "$KPANEL_NODE_UPDATER" install; then
-		kpanel_node_cleanup_failed_join
+		[ "$resume_enrollment" = "true" ] || kpanel_node_cleanup_failed_join
 		return 1
 	fi
-	node_name="$(hostname 2>/dev/null | tr -cd '[:alnum:]._- ' | cut -c1-80)"
-	if ! "$KPANEL_NODE_BINARY" enroll --token "$token" --name "$node_name" --config "$KPANEL_NODE_CONFIG"; then
-		kpanel_node_cleanup_failed_join
-		return 1
+	if [ "$resume_enrollment" != "true" ]; then
+		node_name="$(hostname 2>/dev/null | LC_ALL=C tr -cd '[:alnum:]_. -' | cut -c1-80)"
+		if ! "$KPANEL_NODE_BINARY" enroll --token "$token" --name "$node_name" --config "$KPANEL_NODE_CONFIG"; then
+			kpanel_node_cleanup_failed_join
+			return 1
+		fi
 	fi
 	chown root:kejilion-node "$KPANEL_NODE_CONFIG" || {
-		kpanel_node_cleanup_failed_join
+		echo "节点授权已保存，但配置权限修复失败；再次执行接入命令可继续。" >&2
 		return 1
 	}
 	chmod 0640 "$KPANEL_NODE_CONFIG"
 	if ! kpanel_node_write_units; then
-		kpanel_node_cleanup_failed_join
+		echo "节点授权已保存，但 systemd 单元写入失败；再次执行接入命令可继续。" >&2
 		return 1
 	fi
-	systemctl daemon-reload
-	if ! systemctl enable --now kejilion-node.service kejilion-node-update.timer ||
-		! systemctl is-active --quiet kejilion-node.service; then
-		kpanel_node_cleanup_failed_join
-		echo "KPanel 轻量节点启动失败。" >&2
+	if ! kpanel_node_activate; then
+		echo "KPanel 轻量节点授权已保存，但服务启动失败；修复 systemd 后再次执行接入命令即可续装。" >&2
 		return 1
 	fi
 	echo "KPanel 轻量节点已接入，后续将自动更新。"
@@ -9988,7 +10055,7 @@ kpanel_node_status() {
 		return 1
 	}
 	"$KPANEL_NODE_BINARY" version
-	systemctl --no-pager --full status kejilion-node.service
+	"$KPANEL_NODE_SYSTEMCTL" --no-pager --full status kejilion-node.service
 }
 
 kpanel_node_update() {
@@ -10007,12 +10074,17 @@ kpanel_node_uninstall() {
 		echo "卸载 KPanel 轻量节点需要 root 权限。" >&2
 		return 1
 	}
-	systemctl disable --now kejilion-node.service kejilion-node-update.timer >/dev/null 2>&1 || true
+	if [ -x "$KPANEL_NODE_SYSTEMCTL" ]; then
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-update.timer >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-update.timer >/dev/null 2>&1 || true
+	fi
 	rm -f -- /etc/systemd/system/kejilion-node.service \
 		/etc/systemd/system/kejilion-node-update.service \
 		/etc/systemd/system/kejilion-node-update.timer
 	rm -rf -- "$KPANEL_NODE_HOME" "$KPANEL_NODE_CONFIG_DIR"
-	systemctl daemon-reload >/dev/null 2>&1 || true
+	[ ! -x "$KPANEL_NODE_SYSTEMCTL" ] || "$KPANEL_NODE_SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
 	echo "KPanel 轻量节点已从本机卸载；中心端的离线记录需在集群页面删除。"
 }
 
