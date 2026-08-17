@@ -4371,10 +4371,118 @@ kpanel_system_tuning_firewall_open_all() {
 	kpanel_system_resource_firewall_action open-all "$version" >&2
 }
 
+kpanel_system_tuning_swap_1g_ready() {
+	local swapfile="${1:-/swapfile}" swaps="${2:-/proc/swaps}" fstab="${3:-/etc/fstab}" size
+	[ -f "$swapfile" ] && [ ! -L "$swapfile" ] || return 1
+	size="$(stat -c '%s' -- "$swapfile" 2>/dev/null)"
+	[ "$size" = 1073741824 ] || return 1
+	awk -v path="$swapfile" 'NR > 1 && $1 == path { found=1 } END { exit !found }' "$swaps" 2>/dev/null || return 1
+	awk -v path="$swapfile" '$1 == path && $2 == "swap" { found=1 } END { exit !found }' "$fstab" 2>/dev/null
+}
+
+kpanel_system_tuning_dns_auto() {
+	local country dns1_ipv4 dns2_ipv4 dns1_ipv6 dns2_ipv6
+	local dns=()
+	country="$(curl --fail --silent --show-error --max-time 10 https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)"
+	if [ "$country" = CN ]; then
+		dns1_ipv4="223.5.5.5"
+		dns2_ipv4="183.60.83.19"
+		dns1_ipv6="2400:3200::1"
+		dns2_ipv6="2400:da00::6666"
+	else
+		dns1_ipv4="1.1.1.1"
+		dns2_ipv4="8.8.8.8"
+		dns1_ipv6="2606:4700:4700::1111"
+		dns2_ipv6="2001:4860:4860::8888"
+	fi
+	ip_address
+	[ -n "$ipv4_address" ] && dns+=("$dns1_ipv4" "$dns2_ipv4")
+	[ -n "$ipv6_address" ] && dns+=("$dns1_ipv6" "$dns2_ipv6")
+	[ "${#dns[@]}" -gt 0 ] || dns=("$dns1_ipv4" "$dns2_ipv4")
+	KJ_DNS_NONINTERACTIVE=1 kpanel_set_dns_noninteractive "${dns[@]}"
+}
+
+kpanel_system_tuning_has_package_manager() {
+	local mode="$1" command_name
+	local commands=(dnf yum apt apk pacman zypper opkg)
+	[ "$mode" = cleanup ] && commands+=(pkg)
+	for command_name in "${commands[@]}"; do
+		command -v "$command_name" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+kpanel_system_tuning_ssh_server_ready() {
+	local config="${KPANEL_SYSTEM_TUNING_SSHD_CONFIG:-/etc/ssh/sshd_config}"
+	[ -f "$config" ] && [ ! -L "$config" ] &&
+		command -v sshd >/dev/null 2>&1 && command -v ss >/dev/null 2>&1
+}
+
+kpanel_system_tuning_prepare_ssh_service() {
+	local run_dir="${KPANEL_SYSTEM_TUNING_SSHD_RUN_DIR:-/run/sshd}"
+	local systemd_dir="${KPANEL_SYSTEM_TUNING_SYSTEMD_DIR:-/run/systemd/system}"
+	local alias_path="${KPANEL_SYSTEM_TUNING_SSHD_UNIT_ALIAS:-/etc/systemd/system/sshd.service}"
+	local fragment systemctl_bin
+	mkdir -p -- "$run_dir" && chmod 0755 "$run_dir" || return 1
+	systemctl_bin="$(type -P systemctl 2>/dev/null || true)"
+	if [ -n "$systemctl_bin" ] && [ -d "$systemd_dir" ]; then
+		if "$systemctl_bin" cat ssh.service >/dev/null 2>&1; then
+			if ! "$systemctl_bin" cat sshd.service >/dev/null 2>&1; then
+				fragment="$("$systemctl_bin" show -p FragmentPath --value ssh.service 2>/dev/null)"
+				case "$fragment" in /lib/systemd/system/*|/usr/lib/systemd/system/*) ;; *) return 1 ;; esac
+				ln -sfn -- "$fragment" "$alias_path" || return 1
+				"$systemctl_bin" daemon-reload || return 1
+			fi
+			if "$systemctl_bin" cat ssh.socket >/dev/null 2>&1; then
+				"$systemctl_bin" disable ssh.socket >/dev/null 2>&1 || return 1
+				"$systemctl_bin" stop ssh.socket >/dev/null 2>&1 || return 1
+				if ! "$systemctl_bin" enable --now ssh.service >/dev/null 2>&1; then
+					"$systemctl_bin" enable --now ssh.socket >/dev/null 2>&1 || true
+					return 1
+				fi
+			else
+				"$systemctl_bin" enable --now ssh.service >/dev/null 2>&1 || return 1
+			fi
+		else
+			"$systemctl_bin" enable --now sshd.service >/dev/null 2>&1 || return 1
+		fi
+	elif command -v rc-service >/dev/null 2>&1; then
+		rc-service sshd start >/dev/null 2>&1 || return 1
+	fi
+}
+
+kpanel_system_tuning_ensure_ssh_server() {
+	local package_name
+	if ! kpanel_system_tuning_ssh_server_ready; then
+		if command -v apt >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 ||
+			command -v yum >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 ||
+			command -v opkg >/dev/null 2>&1; then
+			package_name=openssh-server
+		elif command -v apk >/dev/null 2>&1 || command -v pacman >/dev/null 2>&1; then
+			package_name=openssh
+		else
+			kpanel_system_tuning_error "当前系统没有受支持的 OpenSSH Server 安装适配器"
+			return 1
+		fi
+		install "$package_name" || {
+			kpanel_system_tuning_error "OpenSSH Server 安装失败"
+			return 1
+		}
+	fi
+	kpanel_system_tuning_ssh_server_ready || {
+		kpanel_system_tuning_error "OpenSSH Server 安装后配置或工具仍不可用"
+		return 1
+	}
+	kpanel_system_tuning_prepare_ssh_service || {
+		kpanel_system_tuning_error "OpenSSH Server 运行环境准备失败"
+		return 1
+	}
+}
+
 kpanel_system_tuning_item_ready() {
 	local item="$1" command_name
 	case "$item" in
-		swap-1g) [ "$(free -m 2>/dev/null | awk '/^Swap:/{print $2; exit}')" = 1024 ] ;;
+		swap-1g) kpanel_system_tuning_swap_1g_ready ;;
 		ssh-port-5522) sshd -T 2>/dev/null | grep -Eq '^port 5522$' ;;
 		ssh-defense) kpanel_f2b_enabled >/dev/null 2>&1 ;;
 		firewall-open-all) iptables-save 2>/dev/null | awk '$0=="*filter"{f=1;next} f&&$0=="COMMIT"{exit} f&&/^:INPUT /{i=$2} f&&/^:FORWARD /{w=$2} END{exit !(i=="ACCEPT"&&w=="ACCEPT")}' ;;
@@ -4413,20 +4521,43 @@ kpanel_system_tuning_emit() {
 
 kpanel_system_tuning_run_item() {
 	case "$1" in
-		system-update) kpanel_system_tuning_switch_mirror && linux_update ;;
-		system-cleanup) linux_clean ;;
+		system-update)
+			kpanel_system_tuning_has_package_manager update || { kpanel_system_tuning_error "当前系统没有受支持的软件包管理器"; return 1; }
+			kpanel_system_tuning_switch_mirror || { kpanel_system_tuning_error "系统更新源优化失败"; return 1; }
+			linux_update || { kpanel_system_tuning_error "系统软件包更新失败"; return 1; }
+			;;
+		system-cleanup)
+			kpanel_system_tuning_has_package_manager cleanup || { kpanel_system_tuning_error "当前系统没有受支持的清理适配器"; return 1; }
+			linux_clean || { kpanel_system_tuning_error "系统清理失败"; return 1; }
+			;;
 		swap-1g) add_swap 1024 ;;
-		ssh-port-5522) KJ_SSH_PORT_NONINTERACTIVE=1 kpanel_ssh_port_noninteractive 5522 ;;
+		ssh-port-5522) kpanel_system_tuning_ensure_ssh_server && KJ_SSH_PORT_NONINTERACTIVE=1 kpanel_ssh_port_noninteractive 5522 ;;
 		ssh-defense) kpanel_f2b_manager_service_action enable && kpanel_f2b_enabled ;;
 		firewall-open-all) kpanel_system_tuning_firewall_open_all ;;
 		bbr) bbr_on ;;
 		timezone-shanghai) set_timedate Asia/Shanghai ;;
-		dns-auto) auto_optimize_dns ;;
+		dns-auto) kpanel_system_tuning_dns_auto ;;
 		ipv4-preferred) prefer_ipv4 ;;
 		basic-tools) install_docker && install wget sudo tar unzip socat btop nano vim ;;
 		kernel-auto) kpanel_system_tuning_kernel_auto ;;
 		*) return 2 ;;
 	esac
+}
+
+kpanel_system_tuning_menu_item() {
+	local item="$1" index="$2" label="$3"
+	echo "------------------------------------------------"
+	if ! kpanel_system_tuning_run_item "$item"; then
+		echo -e "[${gl_hong}FAIL${gl_bai}] ${index}/12. ${label}，一条龙调优已停止"
+		return 1
+	fi
+	case "$item" in system-update|system-cleanup|dns-auto) ;; *)
+		if ! kpanel_system_tuning_item_ready "$item"; then
+			echo -e "[${gl_hong}FAIL${gl_bai}] ${index}/12. ${label}，完成态回读失败，一条龙调优已停止"
+			return 1
+		fi
+	;; esac
+	echo -e "[${gl_lv}OK${gl_bai}] ${index}/12. ${label}"
 }
 
 kpanel_system_tuning_apply_item() {
@@ -26992,53 +27123,20 @@ EOF
 				[Yy])
 				  clear
 				  send_stats "一条龙调优启动"
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item system-update
-				  echo -e "[${gl_lv}OK${gl_bai}] 1/12. 更新系统到最新"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item system-cleanup
-				  echo -e "[${gl_lv}OK${gl_bai}] 2/12. 清理系统垃圾文件"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item swap-1g
-				  echo -e "[${gl_lv}OK${gl_bai}] 3/12. 设置虚拟内存${gl_huang}1G${gl_bai}"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item ssh-port-5522
-				  echo -e "[${gl_lv}OK${gl_bai}] 4/12. 设置SSH端口号为${gl_huang}5522${gl_bai}"
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item ssh-defense
+				  kpanel_system_tuning_menu_item system-update 1 "更新系统到最新" || break
+				  kpanel_system_tuning_menu_item system-cleanup 2 "清理系统垃圾文件" || break
+				  kpanel_system_tuning_menu_item swap-1g 3 "设置虚拟内存${gl_huang}1G${gl_bai}" || break
+				  kpanel_system_tuning_menu_item ssh-port-5522 4 "设置SSH端口号为${gl_huang}5522${gl_bai}" || break
+				  kpanel_system_tuning_menu_item ssh-defense 5 "启动fail2ban防御SSH暴力破解" || break
 				  cd ~
 				  f2b_status
-				  echo -e "[${gl_lv}OK${gl_bai}] 5/12. 启动fail2ban防御SSH暴力破解"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item firewall-open-all
-				  echo -e "[${gl_lv}OK${gl_bai}] 6/12. 开放所有端口"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item bbr
-				  echo -e "[${gl_lv}OK${gl_bai}] 7/12. 开启${gl_huang}BBR${gl_bai}加速"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item timezone-shanghai
-				  echo -e "[${gl_lv}OK${gl_bai}] 8/12. 设置时区到${gl_huang}上海${gl_bai}"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item dns-auto
-				  echo -e "[${gl_lv}OK${gl_bai}] 9/12. 自动优化DNS地址${gl_huang}${gl_bai}"
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item ipv4-preferred
-				  echo -e "[${gl_lv}OK${gl_bai}] 10/12. 设置网络为${gl_huang}ipv4优先${gl_bai}}"
-
-				  echo "------------------------------------------------"
-				  kpanel_system_tuning_run_item basic-tools
-				  echo -e "[${gl_lv}OK${gl_bai}] 11/12. 安装基础工具${gl_huang}docker wget sudo tar unzip socat btop nano vim${gl_bai}"
-				  echo "------------------------------------------------"
-
-				  kpanel_system_tuning_run_item kernel-auto
-				  echo -e "[${gl_lv}OK${gl_bai}] 12/12. Linux系统内核参数优化"
+				  kpanel_system_tuning_menu_item firewall-open-all 6 "开放所有端口" || break
+				  kpanel_system_tuning_menu_item bbr 7 "开启${gl_huang}BBR${gl_bai}加速" || break
+				  kpanel_system_tuning_menu_item timezone-shanghai 8 "设置时区到${gl_huang}上海${gl_bai}" || break
+				  kpanel_system_tuning_menu_item dns-auto 9 "自动优化DNS地址" || break
+				  kpanel_system_tuning_menu_item ipv4-preferred 10 "设置网络为${gl_huang}IPv4优先${gl_bai}" || break
+				  kpanel_system_tuning_menu_item basic-tools 11 "安装基础工具${gl_huang}docker wget sudo tar unzip socat btop nano vim${gl_bai}" || break
+				  kpanel_system_tuning_menu_item kernel-auto 12 "Linux系统内核参数优化" || break
 				  echo -e "${gl_lv}一条龙系统调优已完成${gl_bai}"
 
 				  ;;
