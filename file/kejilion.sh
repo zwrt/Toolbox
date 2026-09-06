@@ -15,6 +15,8 @@ gl_kjlan='\033[96m'
 canshu="default"
 permission_granted="false"
 ENABLE_STATS="true"
+KPANEL_WEB_CERTIFICATE_PROTOCOL_VERSION="1"
+KPANEL_WEB_CERTIFICATE_REPLACE_PROTOCOL_VERSION="1"
 
 if [ "${1:-}" = "kpanel" ] && [ "${2:-}" = "node" ]; then
 	KJ_LIGHT_NODE_PROTOCOL=1
@@ -1460,8 +1462,24 @@ install_ldnmp() {
 install_certbot() {
 
 	cd ~
-	curl -sS -O ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/auto_cert_renewal.sh
-	chmod +x auto_cert_renewal.sh
+	# Never overwrite an unknown installed renewal script before checking it.
+	if [ ! -e auto_cert_renewal.sh ] && [ ! -L auto_cert_renewal.sh ]; then
+		local renewal_download renewal_digest
+		renewal_download=$(mktemp ./auto_cert_renewal.sh.XXXXXX) || return 1
+		if ! curl -fsS --max-time 30 -o "$renewal_download" "${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/auto_cert_renewal.sh"; then
+			rm -f "$renewal_download"
+			return 1
+		fi
+		renewal_digest=$(sha256sum "$renewal_download" | awk '{print $1}')
+		if [ "$renewal_digest" != ffc714440b503d5f8ee082006f31cc0b59b1c3fd8a1d015257a6cf5944153e83 ] &&
+		   [ "$renewal_digest" != 3a63b9e0c1557fae9e18983a8eee284476a946a811c11b3076535aab1432e0d0 ]; then
+			rm -f "$renewal_download"
+			return 1
+		fi
+		chmod 700 "$renewal_download" && ln "$renewal_download" auto_cert_renewal.sh || { rm -f "$renewal_download"; return 1; }
+		rm -f "$renewal_download"
+	fi
+	kpanel_web_upgrade_certificate_renewal || return 1
 
 	check_crontab_installed
 	local cron_job="0 0 * * * ~/auto_cert_renewal.sh"
@@ -1471,31 +1489,371 @@ install_certbot() {
 }
 
 
+kpanel_web_certificate_renewal_header() {
+	cat <<'KPANEL_RENEWAL_HEADER'
+#!/bin/bash
+# KPANEL_WEB_CERTIFICATE_RENEWAL_PROTOCOL_VERSION=1
+[ -d /home/web/certs ] && [ ! -L /home/web/certs ] || exit 1
+[ ! -L /home/web/certs/.kpanel-certificate.lock ] || exit 1
+exec 9>/home/web/certs/.kpanel-certificate.lock || exit 1
+flock -w 30 9 || exit 1
+
+# Remember only a pair previously observed in this host's Certbot lineage.
+# Certbot's legacy delete-before-issue flow may temporarily remove that lineage.
+kpanel_certificate_automatic() (
+    local cert="$1" key="$2" proof="${certs_directory}${yuming}.auto-renewal"
+    local pair temporary=""
+    [ -f "$cert" ] && [ ! -L "$cert" ] && [ -f "$key" ] && [ ! -L "$key" ] || return 1
+    [ ! -L "$proof" ] && { [ ! -e "$proof" ] || { [ -f "$proof" ] && [ "$(stat -c %u "$proof")" = 0 ] && [ "$(stat -c %a "$proof")" = 600 ]; }; } || return 1
+    pair="$(sha256sum "$cert" | awk '{print $1}') $(sha256sum "$key" | awk '{print $1}')"
+    [[ "$pair" =~ ^[a-f0-9]{64}\ [a-f0-9]{64}$ ]] || return 1
+    if cmp -s "/etc/letsencrypt/live/$yuming/fullchain.pem" "$cert" && cmp -s "/etc/letsencrypt/live/$yuming/privkey.pem" "$key"; then
+        umask 077
+        trap 'rm -f -- "$temporary"' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        temporary=$(mktemp "${proof}.XXXXXX") || return 1
+        printf '%s\n' "$pair" > "$temporary" && chmod 600 "$temporary" && mv -f -- "$temporary" "$proof"
+    else
+        [ -f "$proof" ] && [ "$(wc -c < "$proof")" = 130 ] && [ "$(cat "$proof")" = "$pair" ]
+    fi
+)
+
+KPANEL_RENEWAL_HEADER
+}
+
+# Upgrade only the exact official legacy script. Preserve unknown local edits.
+kpanel_web_upgrade_certificate_renewal() (
+	local renewal=~root/auto_cert_renewal.sh
+	[ -e "$renewal" ] || return 0
+	command -v pgrep >/dev/null 2>&1 || return 1
+	[ -f "$renewal" ] && [ ! -L "$renewal" ] && [ "$(stat -c %u "$renewal")" = 0 ] || return 1
+	local mode
+	mode=$(stat -c %a "$renewal") || return 1
+	(( (8#$mode & 022) == 0 )) || return 1
+	local digest
+	digest=$(sha256sum "$renewal" | awk '{print $1}')
+	if [ "$digest" = 3a63b9e0c1557fae9e18983a8eee284476a946a811c11b3076535aab1432e0d0 ]; then
+		! pgrep -f -- "$renewal" >/dev/null 2>&1
+		return $?
+	fi
+	[ "$digest" = ffc714440b503d5f8ee082006f31cc0b59b1c3fd8a1d015257a6cf5944153e83 ] || return 1
+	local temporary
+	temporary=$(mktemp "${renewal}.XXXXXX") || return 1
+	trap 'rm -f -- "$temporary"' EXIT
+	{
+		kpanel_web_certificate_renewal_header
+		awk '
+			{ print }
+			$0 == "    yuming=$(basename \"$cert_file\" \"_cert.pem\")" {
+				print "    # Custom material is renewed by its owner; the PEM files remain the truth."
+				print "    if [ -e \"${certs_directory}${yuming}.custom\" ] || [ -L \"${certs_directory}${yuming}.custom\" ]; then"
+				print "        continue"
+				print "    fi"
+				print "    if ! kpanel_certificate_automatic \"$cert_file\" \"${certs_directory}${yuming}_key.pem\"; then"
+				print "        continue"
+				print "    fi"
+			}
+		' "$renewal"
+	} > "$temporary" || return 1
+	[ "$(sha256sum "$temporary" | awk '{print $1}')" = 3a63b9e0c1557fae9e18983a8eee284476a946a811c11b3076535aab1432e0d0 ] || return 1
+	chmod 700 "$temporary" || return 1
+	[ "$(sha256sum "$renewal" | awk '{print $1}')" = "$digest" ] || return 1
+	mv -f "$temporary" "$renewal" || return 1
+	# An already-running legacy process did not take the new lock. Fail closed
+	# before touching certificates; a later attempt can use the upgraded entry.
+	if pgrep -f -- "$renewal" >/dev/null 2>&1; then return 1; fi
+)
+
+kpanel_web_certificate_pair_valid() {
+	local cert_file="${1:-}"
+	local key_file="${2:-}"
+	local host="${3:-}"
+	if [ -z "$cert_file" ] || [ -z "$key_file" ] || [ ! -f "$cert_file" ] || [ ! -f "$key_file" ] ||
+		! command -v openssl >/dev/null 2>&1; then
+		return 1
+	fi
+	if ! openssl x509 -in "$cert_file" -noout >/dev/null 2>&1 ||
+		! openssl x509 -in "$cert_file" -noout -checkend 0 >/dev/null 2>&1 ||
+		! openssl pkey -in "$key_file" -noout -passin pass: >/dev/null 2>&1; then
+		return 1
+	fi
+	local starts
+	starts=$(openssl x509 -in "$cert_file" -noout -startdate 2>/dev/null) || return 1
+	starts=$(date -u -d "${starts#notBefore=}" +%s 2>/dev/null) || return 1
+	[ "$starts" -le "$(date -u +%s)" ] || return 1
+	local ipv4_pattern='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+	local ipv6_pattern='^(([0-9A-Fa-f]{1,4}:){1,7}:|([0-9A-Fa-f]{1,4}:){7,7}[0-9A-Fa-f]{1,4}|::1)$'
+	if [ -n "$host" ] && [[ ! "$host" =~ $ipv4_pattern && ! "$host" =~ $ipv6_pattern ]]; then
+		local host_match
+		host_match=$(openssl x509 -in "$cert_file" -noout -checkhost "$host" 2>/dev/null) || return 1
+		[[ "$host_match" == *"does match"* ]] || return 1
+	fi
+	local cert_pub_pem=""
+	local cert_pub_der=""
+	local key_pub_der=""
+	cert_pub_pem=$(mktemp) || return 1
+	cert_pub_der=$(mktemp) || { rm -f "$cert_pub_pem"; return 1; }
+	key_pub_der=$(mktemp) || { rm -f "$cert_pub_pem" "$cert_pub_der"; return 1; }
+	if ! openssl x509 -in "$cert_file" -pubkey -noout >"$cert_pub_pem" 2>/dev/null ||
+		! openssl pkey -pubin -in "$cert_pub_pem" -outform DER >"$cert_pub_der" 2>/dev/null ||
+		! openssl pkey -in "$key_file" -pubout -outform DER >"$key_pub_der" 2>/dev/null; then
+		rm -f "$cert_pub_pem" "$cert_pub_der" "$key_pub_der"
+		return 1
+	fi
+	cmp -s "$cert_pub_der" "$key_pub_der"
+	local matched=$?
+	rm -f "$cert_pub_pem" "$cert_pub_der" "$key_pub_der"
+	return $matched
+}
+
+kpanel_web_certificate_available() {
+	local live_cert="/etc/letsencrypt/live/$yuming/fullchain.pem"
+	local live_key="/etc/letsencrypt/live/$yuming/privkey.pem"
+	if kpanel_web_certificate_pair_valid "$live_cert" "$live_key" "$yuming"; then
+		return 0
+	fi
+	kpanel_web_certificate_pair_valid \
+		"/home/web/certs/${yuming}_cert.pem" \
+		"/home/web/certs/${yuming}_key.pem" \
+		"$yuming"
+}
+
+kpanel_web_prepare_custom_certificate() (
+	set +x
+	umask 077
+	[[ "${yuming:-}" =~ ^[a-z0-9][a-z0-9.-]*\.[a-z0-9]+$ && "$yuming" != *..* ]] || return 1
+	local cert_file="${KJ_WEB_CERTIFICATE_FILE:-}"
+	local key_file="${KJ_WEB_PRIVATE_KEY_FILE:-}"
+	if [ -z "$cert_file" ] || [ -z "$key_file" ] || [ -L "$cert_file" ] || [ -L "$key_file" ] ||
+		[[ "$cert_file" != /* || "$key_file" != /* || "$cert_file" == *..* || "$key_file" == *..* ]]; then
+		echo "KPANEL_PROGRESS 100 自定义证书输入路径无效"
+		return 1
+	fi
+	[ -f "$cert_file" ] && [ -f "$key_file" ] &&
+	[ "$(wc -c < "$cert_file")" -le 16384 ] && [ "$(wc -c < "$key_file")" -le 8192 ] || return 1
+	if ! kpanel_web_certificate_pair_valid "$cert_file" "$key_file" "$yuming"; then
+		echo "KPANEL_PROGRESS 100 自定义证书无效或与域名、私钥不匹配"
+		return 1
+	fi
+	local target_dir="/home/web/certs"
+	local cert_target="$target_dir/${yuming}_cert.pem"
+	local key_target="$target_dir/${yuming}_key.pem"
+	if [ -L "$target_dir" ] || { [ -e "$target_dir" ] && [ ! -d "$target_dir" ]; } ||
+		[ -L "$cert_target" ] || [ -L "$key_target" ]; then
+		echo "KPANEL_PROGRESS 100 目标证书路径不安全"
+		return 1
+	fi
+	mkdir -p "$target_dir" || return 1
+	kpanel_web_upgrade_certificate_renewal || return 1
+	[ ! -L "$target_dir/.kpanel-certificate.lock" ] || return 1
+	exec 9>"$target_dir/.kpanel-certificate.lock" || return 1
+	flock -w 10 9 || return 1
+	# Creation must not overwrite an existing serving pair. Existing TLS sites use
+	# the versioned replacement transaction instead.
+	[ ! -e "$cert_target" ] && [ ! -e "$key_target" ] && [ ! -e "$target_dir/${yuming}.custom" ] && [ ! -L "$target_dir/${yuming}.custom" ] || return 1
+	local cert_tmp=""
+	local key_tmp=""
+	local policy_tmp="" committed=0
+	kpanel_web_cleanup_created_certificate() {
+		local status=$?
+		trap - EXIT INT TERM
+		if [ "$committed" = 0 ]; then
+			# Links identify this transaction's files even if interrupted inside ln.
+			if [ -n "$cert_tmp" ] && [ ! -L "$cert_target" ] && [ "$cert_tmp" -ef "$cert_target" ]; then rm -f -- "$cert_target" || status=1; fi
+			if [ -n "$key_tmp" ] && [ ! -L "$key_target" ] && [ "$key_tmp" -ef "$key_target" ]; then rm -f -- "$key_target" || status=1; fi
+			if [ -n "$policy_tmp" ] && [ ! -L "$target_dir/${yuming}.custom" ] && [ "$policy_tmp" -ef "$target_dir/${yuming}.custom" ]; then rm -f -- "$target_dir/${yuming}.custom" || status=1; fi
+		fi
+		rm -f -- "$cert_tmp" "$key_tmp" "$policy_tmp" || status=1
+		exit "$status"
+	}
+	trap kpanel_web_cleanup_created_certificate EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	cert_tmp=$(mktemp "$target_dir/.kpanel-${yuming}.cert.XXXXXX") || return 1
+	key_tmp=$(mktemp "$target_dir/.kpanel-${yuming}.key.XXXXXX") || return 1
+	chmod 600 "$cert_tmp" "$key_tmp" || return 1
+	if ! cp "$cert_file" "$cert_tmp" || ! cp "$key_file" "$key_tmp" ||
+		! chmod 644 "$cert_tmp" || ! chmod 600 "$key_tmp" ||
+		! ln "$cert_tmp" "$cert_target"; then
+		echo "KPANEL_PROGRESS 100 写入自定义证书失败"
+		return 1
+	fi
+	ln "$key_tmp" "$key_target" || return 1
+	policy_tmp=$(mktemp "$target_dir/.kpanel-policy.XXXXXX") || return 1
+	if ! printf 'custom-v1\n' > "$policy_tmp" || ! ln "$policy_tmp" "$target_dir/${yuming}.custom"; then
+		return 1
+	fi
+	committed=1
+	return 0
+)
+
+# Fixed machine protocol: no config generation, no arbitrary target paths.
+# EXIT/TERM recovery restores only files still owned by this transaction.
+kpanel_web_replace_certificate_transaction() (
+	set +x
+	umask 077
+	local domain="${1:-}" config_hash="${2:-}" cert_hash="${3:-}" key_hash="${4:-}"
+	[[ $# == 4 && "$domain" =~ ^[a-z0-9][a-z0-9.-]*\.[a-z0-9]+$ && "$domain" != *..* ]] || exit 2
+	[[ "$config_hash" =~ ^[a-f0-9]{64}$ && "$cert_hash" =~ ^[a-f0-9]{64}$ && "$key_hash" =~ ^[a-f0-9]{64}$ ]] || exit 2
+	local dir=/home/web/certs config="/home/web/conf.d/$domain.conf"
+	local cert="$dir/${domain}_cert.pem" key="$dir/${domain}_key.pem"
+	local policy="$dir/${domain}.custom" had_policy=0
+	if [ -e "$policy" ] || [ -L "$policy" ]; then
+		[ -f "$policy" ] && [ ! -L "$policy" ] && [ "$(cat "$policy")" = custom-v1 ] || exit 2
+		had_policy=1
+	fi
+	local source_cert="${KJ_WEB_CERTIFICATE_FILE:-}" source_key="${KJ_WEB_PRIVATE_KEY_FILE:-}"
+	local path
+	for path in /home /home/web /home/web/conf.d "$dir"; do
+		[ -d "$path" ] && [ ! -L "$path" ] || exit 2
+	done
+	for path in "$config" "$cert" "$key" "$source_cert" "$source_key"; do
+		[[ "$path" == /* ]] && [ -f "$path" ] && [ ! -L "$path" ] || exit 2
+	done
+	[ "$(wc -c < "$source_cert")" -le 16384 ] && [ "$(wc -c < "$source_key")" -le 8192 ] || exit 2
+	kpanel_web_certificate_pair_valid "$source_cert" "$source_key" "$domain" || exit 2
+	# Existing script TLS directives must already refer to this exact pair.
+	awk -v cert="/etc/nginx/certs/${domain}_cert.pem;" -v key="/etc/nginx/certs/${domain}_key.pem;" '
+		$1 == "ssl_certificate" { if ($2 != cert || NF != 2) bad=1; c++ }
+		$1 == "ssl_certificate_key" { if ($2 != key || NF != 2) bad=1; k++ }
+		END { exit (bad || !c || !k) }
+	' "$config" || exit 2
+	kpanel_web_upgrade_certificate_renewal || { echo 'KPANEL_CERTIFICATE renewal_adapter_unavailable'; exit 2; }
+	[ ! -L "$dir/.kpanel-certificate.lock" ] || exit 2
+	exec 9>"$dir/.kpanel-certificate.lock" || exit 1
+	flock -w 10 9 || exit 1
+	local expected new_cert_hash new_key_hash
+	expected=$(printf '%s\n%s\n%s' "$config_hash" "$cert_hash" "$key_hash")
+	local actual
+	actual=$(sha256sum "$config" "$cert" "$key" | awk '{print $1}')
+	[ "$actual" = "$expected" ] || { echo 'KPANEL_CERTIFICATE conflict'; exit 3; }
+	docker exec nginx nginx -t >/dev/null 2>&1 || exit 1
+	local work
+	work=$(mktemp -d "$dir/.kpanel-certificate.XXXXXX") || exit 1
+	local published=0 committed=0 retain=0
+	cleanup_certificate_transaction() {
+		local status=$?
+		trap - EXIT INT TERM
+		if [ "$published" = 1 ] && [ "$committed" = 0 ]; then
+			if { [ "$(sha256sum "$cert" | awk '{print $1}')" = "$new_cert_hash" ] || [ "$(sha256sum "$cert" | awk '{print $1}')" = "$cert_hash" ]; } &&
+			   { [ "$(sha256sum "$key" | awk '{print $1}')" = "$new_key_hash" ] || [ "$(sha256sum "$key" | awk '{print $1}')" = "$key_hash" ]; } &&
+			   [ ! -L "$cert" ] && [ ! -L "$key" ]; then
+				if ! mv -f "$work/old-cert" "$cert" || ! mv -f "$work/old-key" "$key" ||
+				   ! docker exec nginx nginx -t >/dev/null 2>&1 || ! docker exec nginx nginx -s reload >/dev/null 2>&1; then
+					retain=1
+				fi
+				if [ "$had_policy" = 0 ] && [ ! -L "$policy" ] && [ "$(cat "$policy" 2>/dev/null)" = custom-v1 ] &&
+				   [ "$(sha256sum "$cert" | awk '{print $1}')" = "$cert_hash" ] && [ "$(sha256sum "$key" | awk '{print $1}')" = "$key_hash" ]; then rm -f "$policy"; fi
+			else
+				retain=1
+			fi
+		fi
+		if [ "$retain" = 1 ]; then
+			echo 'KPANEL_CERTIFICATE needs_attention'
+			status=4
+		else
+			rm -rf -- "$work"
+		fi
+		exit "$status"
+	}
+	trap cleanup_certificate_transaction EXIT
+	trap 'exit 1' INT TERM
+	cp -p "$cert" "$work/old-cert" && cp -p "$key" "$work/old-key" || exit 1
+	cp "$source_cert" "$work/new-cert" && cp "$source_key" "$work/new-key" || exit 1
+	chmod 644 "$work/new-cert" && chmod 600 "$work/new-key" || exit 1
+	new_cert_hash=$(sha256sum "$work/new-cert" | awk '{print $1}')
+	new_key_hash=$(sha256sum "$work/new-key" | awk '{print $1}')
+	actual=$(sha256sum "$config" "$cert" "$key" | awk '{print $1}')
+	[ "$actual" = "$expected" ] || { echo 'KPANEL_CERTIFICATE conflict'; exit 3; }
+	published=1
+	if [ "$had_policy" = 0 ]; then
+		printf 'custom-v1\n' > "$work/policy" && mv -n "$work/policy" "$policy" || exit 1
+	fi
+	mv -f "$work/new-cert" "$cert" && mv -f "$work/new-key" "$key" || exit 1
+	docker exec nginx nginx -t >/dev/null 2>&1 && docker exec nginx nginx -s reload >/dev/null 2>&1 || exit 1
+	[ "$(sha256sum "$config" | awk '{print $1}')" = "$config_hash" ] &&
+	[ "$(sha256sum "$cert" | awk '{print $1}')" = "$new_cert_hash" ] &&
+	[ "$(sha256sum "$key" | awk '{print $1}')" = "$new_key_hash" ] &&
+	[ ! -L "$policy" ] && [ "$(cat "$policy")" = custom-v1 ] || exit 1
+	committed=1
+	echo "KPANEL_CERTIFICATE replaced $domain"
+)
+
+kpanel_web_replace_certificate() (
+	# Only the Agent opts in to disposal of its dedicated staging directory.
+	local ephemeral=""
+	trap 'exit 1' INT TERM
+	if [ "${KJ_WEB_CERTIFICATE_EPHEMERAL:-0}" = 1 ]; then
+		ephemeral=$(dirname "${KJ_WEB_CERTIFICATE_FILE:-}")
+		[[ "$ephemeral" == /*/certificate-replace-* && "${KJ_WEB_CERTIFICATE_FILE:-}" = "$ephemeral/certificate.pem" && "${KJ_WEB_PRIVATE_KEY_FILE:-}" = "$ephemeral/private-key.pem" ]] || exit 2
+		[ -d "$ephemeral" ] && [ ! -L "$ephemeral" ] && [ "$(stat -c %u "$ephemeral")" = 0 ] && [ "$(stat -c %a "$ephemeral")" = 700 ] || exit 2
+		trap 'rm -f -- "$ephemeral/certificate.pem" "$ephemeral/private-key.pem"; rmdir -- "$ephemeral" 2>/dev/null || true' EXIT
+	fi
+	kpanel_web_replace_certificate_transaction "$@"
+)
+
 install_ssltls() {
 	  docker stop nginx > /dev/null 2>&1
 	  cd ~
 
-	  local file_path="/etc/letsencrypt/live/$yuming/fullchain.pem"
-	  if [ ! -f "$file_path" ]; then
-		 	local ipv4_pattern='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
-			local ipv6_pattern='^(([0-9A-Fa-f]{1,4}:){1,7}:|([0-9A-Fa-f]{1,4}:){7,7}[0-9A-Fa-f]{1,4}|::1)$'
-			if [[ ($yuming =~ $ipv4_pattern || $yuming =~ $ipv6_pattern) ]]; then
-				mkdir -p /etc/letsencrypt/live/$yuming/
-				if command -v dnf &>/dev/null || command -v yum &>/dev/null; then
-					openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout /etc/letsencrypt/live/$yuming/privkey.pem -out /etc/letsencrypt/live/$yuming/fullchain.pem -days 5475 -subj "/C=US/ST=State/L=City/O=Organization/OU=Organizational Unit/CN=Common Name"
-				else
-					openssl genpkey -algorithm Ed25519 -out /etc/letsencrypt/live/$yuming/privkey.pem
-					openssl req -x509 -key /etc/letsencrypt/live/$yuming/privkey.pem -out /etc/letsencrypt/live/$yuming/fullchain.pem -days 5475 -subj "/C=US/ST=State/L=City/O=Organization/OU=Organizational Unit/CN=Common Name"
-				fi
-			else
-				docker run --rm -p 80:80 -v /etc/letsencrypt/:/etc/letsencrypt certbot/certbot certonly --standalone -d "$yuming" --email your@email.com --agree-tos --no-eff-email --force-renewal --key-type ecdsa
-			fi
+	  if [ -n "${KJ_WEB_CERTIFICATE_FILE:-}" ] || [ -n "${KJ_WEB_PRIVATE_KEY_FILE:-}" ]; then
+		  if ! kpanel_web_prepare_custom_certificate; then
+			  docker start nginx > /dev/null 2>&1
+			  if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
+				  exit 1
+			  fi
+			  return 1
+		  fi
+		  docker start nginx > /dev/null 2>&1 || return 1
+		  return 0
 	  fi
-	  mkdir -p /home/web/certs/
-	  cp /etc/letsencrypt/live/$yuming/fullchain.pem /home/web/certs/${yuming}_cert.pem > /dev/null 2>&1
-	  cp /etc/letsencrypt/live/$yuming/privkey.pem /home/web/certs/${yuming}_key.pem > /dev/null 2>&1
 
-	  docker start nginx > /dev/null 2>&1
+	  local live_cert="/etc/letsencrypt/live/$yuming/fullchain.pem"
+	  local live_key="/etc/letsencrypt/live/$yuming/privkey.pem"
+	  local source_cert=""
+	  local source_key=""
+	  if kpanel_web_certificate_pair_valid "/home/web/certs/${yuming}_cert.pem" "/home/web/certs/${yuming}_key.pem" "$yuming"; then
+		  docker start nginx > /dev/null 2>&1 || return 1
+		  return 0
+	  elif [ -e "/home/web/certs/${yuming}.custom" ]; then
+		  echo "自定义证书已失效，请提供新的证书材料"
+		  docker start nginx > /dev/null 2>&1
+		  return 1
+	  elif kpanel_web_certificate_pair_valid "$live_cert" "$live_key" "$yuming"; then
+		  source_cert="$live_cert"
+		  source_key="$live_key"
+	  else
+		  local ipv4_pattern='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+		  local ipv6_pattern='^(([0-9A-Fa-f]{1,4}:){1,7}:|([0-9A-Fa-f]{1,4}:){7,7}[0-9A-Fa-f]{1,4}|::1)$'
+		  if [[ ($yuming =~ $ipv4_pattern || $yuming =~ $ipv6_pattern) ]]; then
+			  mkdir -p "/etc/letsencrypt/live/$yuming/" || return 1
+			  if command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+				  openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout "/etc/letsencrypt/live/$yuming/privkey.pem" -out "/etc/letsencrypt/live/$yuming/fullchain.pem" -days 5475 -subj "/C=US/ST=State/L=City/O=Organization/OU=Organizational Unit/CN=Common Name"
+			  else
+				  openssl genpkey -algorithm Ed25519 -out "/etc/letsencrypt/live/$yuming/privkey.pem"
+				openssl req -x509 -key "/etc/letsencrypt/live/$yuming/privkey.pem" -out "/etc/letsencrypt/live/$yuming/fullchain.pem" -days 5475 -subj "/C=US/ST=State/L=City/O=Organization/OU=Organizational Unit/CN=Common Name"
+			  fi
+		  else
+			  docker run --rm -p 80:80 -v /etc/letsencrypt/:/etc/letsencrypt certbot/certbot certonly --standalone -d "$yuming" --email your@email.com --agree-tos --no-eff-email --force-renewal --key-type ecdsa
+		  fi
+		  if kpanel_web_certificate_pair_valid "$live_cert" "$live_key" "$yuming"; then
+			  source_cert="$live_cert"
+			  source_key="$live_key"
+		  fi
+	  fi
+	  if [ -z "$source_cert" ] || [ -z "$source_key" ]; then
+		  docker start nginx > /dev/null 2>&1
+		  return 1
+	  fi
+	  mkdir -p /home/web/certs/ || { docker start nginx > /dev/null 2>&1; return 1; }
+	  if ! cp "$source_cert" "/home/web/certs/${yuming}_cert.pem" > /dev/null 2>&1 ||
+		  ! cp "$source_key" "/home/web/certs/${yuming}_key.pem" > /dev/null 2>&1; then
+		  docker start nginx > /dev/null 2>&1
+		  return 1
+	  fi
+
+	  docker start nginx > /dev/null 2>&1 || return 1
 }
 
 
@@ -1572,9 +1930,8 @@ certs_status() {
 
 	sleep 1
 
-	local file_path="/etc/letsencrypt/live/$yuming/fullchain.pem"
-	if [ -f "$file_path" ]; then
-		send_stats "域名证书申请成功"
+	if kpanel_web_certificate_available; then
+		send_stats "域名证书可用"
 	else
 		send_stats "域名证书申请失败"
 		if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ] &&
@@ -1901,6 +2258,8 @@ web_del() {
 		rm -f -- "/home/web/conf.d/$yuming.conf" > /dev/null 2>&1
 		rm -f -- "/home/web/certs/${yuming}_key.pem" > /dev/null 2>&1
 		rm -f -- "/home/web/certs/${yuming}_cert.pem" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}.custom" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}.auto-renewal" > /dev/null 2>&1
 
 		# 将域名转换为数据库名
 		dbname=$(echo "$yuming" | sed -e 's/[^A-Za-z0-9]/_/g')
@@ -11146,7 +11505,7 @@ kpanel_node_write_updater() {
 	printf '#!/bin/bash\n' >"$updater_temporary" || return 1
 	kpanel_node_lock_template >>"$updater_temporary" || return 1
 	cat >>"$updater_temporary" <<'KPANEL_NODE_UPDATE'
-# KPANEL_NODE_RUNTIME_GENERATION=2
+# KPANEL_NODE_RUNTIME_GENERATION=3
 set -euo pipefail
 
 mode="${1:-update}"
@@ -11170,13 +11529,51 @@ base_url="https://${github_host}/kejilion/KPanel/releases/latest/download"
 temporary_dir=""
 
 kpanel_node_acquire_lock || exit 1
+# A single credential-free observation; lifecycle lock serializes every writer.
+update_checked_at="$(date +%s)"
+update_result=running
+update_error=""
+optional_degraded=false
+write_update_status() {
+	local result="$1" error="$2" finished="$3" directory=/etc/kejilion-node
+	local status_file="$directory/update-status.json" gid status_temporary
+	gid="$(id -g kejilion-node)" || return 1
+	[ -d "$directory" ] && [ ! -L "$directory" ] && [ "$(stat -c '%u:%g:%a' "$directory")" = "0:$gid:750" ] || return 1
+	if [ -e "$status_file" ] || [ -L "$status_file" ]; then
+		[ -f "$status_file" ] && [ ! -L "$status_file" ] && [ "$(stat -c '%u:%g:%a:%h' "$status_file")" = "0:$gid:640:1" ] || return 1
+	fi
+	status_temporary="$directory/.update-status.pending"
+	# One fixed staging file also bounds residue after SIGKILL. Never follow it.
+	if [ -e "$status_temporary" ] || [ -L "$status_temporary" ]; then
+		[ -f "$status_temporary" ] && [ ! -L "$status_temporary" ] && [ "$(stat -c '%u:%h' "$status_temporary")" = "0:1" ] || return 1
+		rm -f -- "$status_temporary" || return 1
+	fi
+	(umask 077; set -C; : >"$status_temporary") || return 1
+	if ! printf '{"state":"%s","checkedAt":%s,"finishedAt":%s,"errorCode":"%s"}\n' "$result" "$update_checked_at" "$finished" "$error" >"$status_temporary" ||
+		! chown "0:$gid" "$status_temporary" || ! chmod 0640 "$status_temporary" || ! mv -f -- "$status_temporary" "$status_file"; then
+		rm -f -- "$status_temporary"
+		return 1
+	fi
+}
 cleanup() {
+	local exit_code=$? finished
+	trap - EXIT
+	if [ "$update_result" = running ]; then
+		update_result=failed
+		[ -n "$update_error" ] || update_error=internal
+	fi
+	if [ "$exit_code" = 130 ] || [ "$exit_code" = 143 ]; then update_result=interrupted; update_error=interrupted; fi
+	if [ "$exit_code" = 0 ] && [ "$optional_degraded" = true ]; then update_result=degraded; update_error=optional_service; fi
+	finished="$(date +%s)"
+	write_update_status "$update_result" "$update_error" "$finished" || echo "KPanel update status could not be recorded." >&2
 	[ -z "$temporary_dir" ] || rm -rf -- "$temporary_dir"
 	kpanel_node_release_lock
+	exit "$exit_code"
 }
 trap cleanup EXIT
 trap 'echo "KPanel lightweight node update interrupted; run the command again to retry." >&2; exit 130' INT
 trap 'exit 143' HUP TERM
+write_update_status running '' 0 || echo "KPanel update status could not be recorded." >&2
 
 # Old release assets only migrate in kejilion-node-update.*. The new staging
 # namespace prevents their `version` probe from restoring an obsolete updater.
@@ -11184,6 +11581,7 @@ temporary_dir="$(mktemp -d /tmp/kejilion-node-release.XXXXXX)"
 
 curl_progress=(--silent --show-error)
 [ ! -t 2 ] || curl_progress=(--progress-bar --show-error)
+update_error=release_check
 echo "Checking KPanel lightweight node release..."
 if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "${curl_progress[@]}" \
 	--connect-timeout 15 --max-time 60 --retry 3 --retry-delay 5 --retry-max-time 240 \
@@ -11192,6 +11590,7 @@ if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "$
 	echo "KPanel release check failed; check access to github.com and retry." >&2
 	exit 1
 fi
+update_error=manifest
 expected="$(awk -v name="$binary_name" '$2 == name { print $1 }' "${temporary_dir}/SHA256SUMS")"
 printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || {
 	echo "release checksum is unavailable" >&2
@@ -11309,9 +11708,10 @@ fi
 
 restart_optional_services() {
 	if ! ensure_file_service_unit; then
+		optional_degraded=true
 		echo "KPanel lightweight node updated; file service unit is unavailable" >&2
 	fi
-	systemctl enable "$file_service" >/dev/null 2>&1 || true
+	systemctl enable "$file_service" >/dev/null 2>&1 || optional_degraded=true
 	# Telemetry is the core update contract. Optional brokers can be unavailable
 	# on older centers; their failure must not roll back a healthy reporting node.
 	local service
@@ -11319,13 +11719,16 @@ restart_optional_services() {
 		if systemctl cat "$service" >/dev/null 2>&1; then
 			if service_running_current "$service" && { [ "$service" != "$file_service" ] || [ "$file_service_unit_changed" != true ]; }; then continue; fi
 			if ! systemctl restart "$service" || ! wait_for_service "$service"; then
+				optional_degraded=true
 				echo "KPanel lightweight node updated; optional service unavailable: ${service}" >&2
 			fi
 		fi
 	done
 }
 restart_services() {
+	update_error=config
 	repair_config_access || return 1
+	update_error=restart
 	systemctl restart kejilion-node.service || return 1
 	wait_for_service kejilion-node.service || return 1
 	restart_optional_services
@@ -11335,13 +11738,16 @@ if [ -f "$binary_path" ] && [ "$(sha256sum "$binary_path" | awk '{print $1}')" =
 	if [ "$restart_required" = "true" ] && ! service_running_current kejilion-node.service; then
 		restart_services || { echo "installed node is current but restart failed" >&2; exit 1; }
 	elif [ "$restart_required" = "true" ]; then
+		update_error=config
 		repair_config_access || { echo "node configuration access is invalid" >&2; exit 1; }
 		restart_optional_services
 	fi
+	update_result=current; update_error=""
 	echo "KPanel lightweight node is already up to date."
 	exit 0
 fi
 
+update_error=download
 echo "Downloading KPanel lightweight node..."
 if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "${curl_progress[@]}" \
 	--connect-timeout 15 --max-time 180 --retry 3 --retry-delay 5 --retry-max-time 600 \
@@ -11350,18 +11756,21 @@ if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location "$
 	echo "KPanel node download failed; check access to GitHub release downloads and retry." >&2
 	exit 1
 fi
+update_error=checksum
 actual="$(sha256sum "${temporary_dir}/${binary_name}" | awk '{print $1}')"
 [ "$actual" = "$expected" ] || {
 	echo "release checksum verification failed" >&2
 	exit 1
 }
 chmod 0755 "${temporary_dir}/${binary_name}"
+update_error=protocol
 version_output="$("${temporary_dir}/${binary_name}" version)"
 printf '%s\n' "$version_output" | grep -Eq '^[^[:space:]]+ light-v1$' || {
 	echo "release binary protocol is invalid" >&2
 	exit 1
 }
 
+update_error=internal
 install -o root -g root -m 0755 "${temporary_dir}/${binary_name}" "${binary_path}.new"
 had_previous=false
 if [ -f "$binary_path" ]; then
@@ -11374,9 +11783,11 @@ if [ "$restart_required" = "true" ] && ! restart_services; then
 	if [ "$had_previous" = "true" ] && [ -f "${binary_path}.previous" ]; then
 		mv -f -- "${binary_path}.previous" "$binary_path"
 		if ! restart_services; then
+			update_error=rollback
 			echo "KPanel lightweight node rollback restored the binary but service recovery failed." >&2
 			exit 1
 		fi
+		update_result=rolled_back; update_error=restart
 		echo "KPanel lightweight node update failed and was rolled back." >&2
 	else
 		echo "KPanel lightweight node update failed; no previous binary is available." >&2
@@ -11384,6 +11795,7 @@ if [ "$restart_required" = "true" ] && ! restart_services; then
 	exit 1
 fi
 rm -f -- "${binary_path}.previous"
+update_result=updated; update_error=""
 echo "KPanel lightweight node update completed: ${version_output}"
 KPANEL_NODE_UPDATE
 	if ! chmod 0755 "$updater_temporary" || ! mv -f -- "$updater_temporary" "$KPANEL_NODE_UPDATER"; then
@@ -11709,7 +12121,10 @@ kpanel_node_status() {
 	"$KPANEL_NODE_BINARY" version
 	"$KPANEL_NODE_SYSTEMCTL" --no-pager --full status kejilion-node.service
 	main_status=$?
-	"$KPANEL_NODE_SYSTEMCTL" --no-pager --full status kejilion-node-ssh-login.service || true
+	"$KPANEL_NODE_SYSTEMCTL" --no-pager --full status kejilion-node-update.timer kejilion-node-terminal.service kejilion-node-file.service kejilion-node-ssh-login.service || true
+	local health_output
+	# Old release binaries do not support this optional read-only summary yet.
+	if health_output="$("$KPANEL_NODE_BINARY" health 2>/dev/null)"; then printf '%s\n' "$health_output"; fi
 	return "$main_status"
 }
 
@@ -30551,6 +30966,10 @@ else
 			if [ "$1" = "env" ] || [ "$1" = "environment" ] || [ "$1" = "环境" ]; then
 				shift
 				kpanel_ldnmp_dispatch "$@"
+			elif [ "$1" = "certificate-replace" ]; then
+				shift
+				kpanel_web_replace_certificate "$@"
+				exit $?
 			elif [ "$1" = "cache" ]; then
 				web_cache
 			elif [ "$1" = "del" ] || [ "$1" = "delete" ] || [ "$1" = "删除" ]; then
