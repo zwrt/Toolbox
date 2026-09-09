@@ -1537,13 +1537,26 @@ kpanel_web_upgrade_certificate_renewal() (
 		! pgrep -f -- "$renewal" >/dev/null 2>&1
 		return $?
 	fi
-	[ "$digest" = ffc714440b503d5f8ee082006f31cc0b59b1c3fd8a1d015257a6cf5944153e83 ] || return 1
+	# Recognize exact official revisions, including the first v1 renewal entry
+	# and the older entry whose only extra content is commented firewall commands.
+	# Never rewrite an unknown locally edited renewal policy.
+	case "$digest" in
+		ffc714440b503d5f8ee082006f31cc0b59b1c3fd8a1d015257a6cf5944153e83|\
+		b117c82fe949d23c745902f633bd343cd13d8a929bb17dd51534fb12af46669d|\
+		90ec47433699bc981c5a146b9853ab1ed220540abbb553bd373e87c42615c7d1) ;;
+		*) return 1 ;;
+	esac
 	local temporary
 	temporary=$(mktemp "${renewal}.XXXXXX") || return 1
 	trap 'rm -f -- "$temporary"' EXIT
 	{
 		kpanel_web_certificate_renewal_header
 		awk '
+			$0 == "# 定义证书存储目录" { body=1 }
+			!body { next }
+			skip { skip--; next }
+			$0 == "    # Custom material is renewed by its owner; the PEM files remain the truth." { skip=7; next }
+			$0 == "            # if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null; then" { skip=13; next }
 			{ print }
 			$0 == "    yuming=$(basename \"$cert_file\" \"_cert.pem\")" {
 				print "    # Custom material is renewed by its owner; the PEM files remain the truth."
@@ -12756,10 +12769,33 @@ fix_phpfpm_conf() {
 
 
 
+KPANEL_WEB_REDIRECT_PROTOCOL_VERSION="1"
+
+kpanel_web_redirect_target_valid() {
+	local target="${1:-}" label
+	[ ${#target} -le 253 ] && [[ "$target" == *.* ]] || return 1
+	[[ "$target" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$target" != *..* ]] || return 1
+	local -a labels
+	IFS=. read -r -a labels <<< "$target"
+	[[ "$target" != *. ]] || return 1
+	for label in "${labels[@]}"; do
+		[ ${#label} -le 63 ] && [[ "$label" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]] || return 1
+	done
+	[[ "${labels[-1]}" =~ [a-zA-Z] ]]
+}
+
 kpanel_run_web_recipe_cli() {
 	local selector="${1:-}"
 	local domain="${2:-}"
-	if [ "$#" -ne 2 ]; then
+	local KJ_WEB_REDIRECT_TARGET=""
+	if [ "$selector" = "22" ] && [ "$#" -eq 3 ]; then
+		KJ_WEB_REDIRECT_TARGET="${3,,}"
+		if ! kpanel_web_redirect_target_valid "$KJ_WEB_REDIRECT_TARGET" ||
+			[ "$KJ_WEB_REDIRECT_TARGET" = "${domain,,}" ]; then
+			echo "KPANEL_PROGRESS 100 跳转目标必须是不同于原域名的有效域名"
+			return 64
+		fi
+	elif [ "$#" -ne 2 ]; then
 		echo "用法: k <建站命令> <域名>"
 		return 64
 	fi
@@ -13881,23 +13917,32 @@ linux_ldnmp() {
 	  webname="站点重定向"
 	  send_stats "安装$webname"
 	  echo "开始部署 $webname"
-	  add_yuming
-	  read -e -p "请输入跳转域名: " reverseproxy
-	  nginx_install_status
+	  add_yuming || return 1
+	  reverseproxy="${KJ_WEB_REDIRECT_TARGET:-}"
+	  if [ -z "$reverseproxy" ]; then
+		read -e -p "请输入跳转域名: " reverseproxy || return 1
+	  fi
+	  nginx_install_status || return 1
 
 
 
-	  install_ssltls
-	  certs_status
+	  if ! install_ssltls; then
+		# Preserve the script's retry/import dialog after issuance failure. A
+		# failure with an available pair (for example nginx start) must stop.
+		if kpanel_web_certificate_available; then return 1; fi
+	  fi
+	  certs_status || return 1
+	  kpanel_web_certificate_available || return 1
 
 
-	  wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/rewrite.conf
-	  sed -i "s/yuming.com/$yuming/g" /home/web/conf.d/$yuming.conf
-	  sed -i "s/baidu.com/$reverseproxy/g" /home/web/conf.d/$yuming.conf
+	  wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/rewrite.conf || return 1
+	  sed -i "s/yuming.com/$yuming/g" /home/web/conf.d/$yuming.conf || return 1
+	  sed -i "s/baidu.com/$reverseproxy/g" /home/web/conf.d/$yuming.conf || return 1
 
 	  nginx_http_on
 
-	  docker exec nginx nginx -s reload
+	  docker exec nginx nginx -t || return 1
+	  docker exec nginx nginx -s reload || return 1
 
 	  nginx_web_on
 
@@ -23828,11 +23873,12 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 		fi
 		  ;;
 	esac
+	local app_action_status=$?
 	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
-		return
+		return "$app_action_status"
 	fi
 	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
-		return
+		return "$app_action_status"
 	fi
 	break_end
 	sub_choice=""
