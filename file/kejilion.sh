@@ -1616,7 +1616,7 @@ install_ldnmp() {
 
 	  cd /home/web && docker compose up -d
 	  sleep 1
-  	  crontab -l 2>/dev/null | grep -v 'logrotate' | crontab -
+	  crontab -l 2>/dev/null | grep -Fvx '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf' | crontab -
   	  (crontab -l 2>/dev/null; echo '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf') | crontab -
 
 	  fix_phpfpm_conf php
@@ -2417,6 +2417,7 @@ normalize_ldnmp_site_permissions() {
 
 
 restart_ldnmp() {
+	  shared_waf_refresh || return 1
 	  docker exec nginx chown -R nginx:nginx /var/www/html > /dev/null 2>&1
 	  docker exec nginx mkdir -p /var/cache/nginx/proxy > /dev/null 2>&1
 	  docker exec nginx mkdir -p /var/cache/nginx/fastcgi > /dev/null 2>&1
@@ -2429,27 +2430,73 @@ restart_ldnmp() {
 
 }
 
+nginx_wait_ready() {
+  local attempt
+  for attempt in {1..20}; do
+    if docker exec nginx nginx -t >/dev/null 2>&1 && docker top nginx -eo pid,args | grep -q 'nginx: worker process'; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 nginx_upgrade() {
-
-  local ldnmp_pods="nginx"
-  cd /home/web/
-  docker rm -f $ldnmp_pods > /dev/null 2>&1
-  docker images --filter=reference="kjlion/${ldnmp_pods}*" -q | xargs docker rmi > /dev/null 2>&1
-  docker images --filter=reference="${ldnmp_pods}*" -q | xargs docker rmi > /dev/null 2>&1
-  docker compose up -d --force-recreate $ldnmp_pods
-  crontab -l 2>/dev/null | grep -v 'logrotate' | crontab -
-  (crontab -l 2>/dev/null; echo '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf') | crontab -
-  docker exec nginx chown -R nginx:nginx /var/www/html
-  docker exec nginx mkdir -p /var/cache/nginx/proxy
-  docker exec nginx mkdir -p /var/cache/nginx/fastcgi
-  docker exec nginx chown -R nginx:nginx /var/cache/nginx/proxy
-  docker exec nginx chown -R nginx:nginx /var/cache/nginx/fastcgi
-  docker restart $ldnmp_pods > /dev/null 2>&1
-
+  (
+  local ldnmp_pods="nginx" previous_image existing_ids directory interpreter ready=false
+  cd /home/web/ || return 1
+  shared_waf_refresh || return 1
+  if previous_image=$(docker inspect -f '{{.Image}}' "$ldnmp_pods" 2>/dev/null); then
+    [[ "$previous_image" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  else
+    # Only a confirmed absent container is a first installation, not a daemon error.
+    existing_ids=$(docker container ls -a --filter 'name=^/nginx$' --format '{{.ID}}') || return 1
+    [ -z "$existing_ids" ] || return 1
+    previous_image=""
+  fi
+  interpreter=$(command -v python3) || { echo "Nginx 安全更新需要 Python 3 保存完整 Compose 配置" >&2; return 1; }
+  umask 077
+  directory=$(mktemp -d /home/web/.nginx-update.XXXXXX) || return 1
+  trap 'rm -f -- "$directory/current.json" "$directory/rendered.json" "$directory/rollback.json"; rmdir -- "$directory" 2>/dev/null || true' EXIT
+  # Freeze the actual merged model, including default/COMPOSE_FILE overrides.
+  docker compose config --format json > "$directory/current.json" || return 1
+  local -a compose=(docker compose --project-directory /home/web -f "$directory/current.json")
+  "${compose[@]}" config --format json > "$directory/rendered.json" || return 1
+  # Refuse Compose versions that cannot round-trip their canonical data model.
+  "$interpreter" -I - "$directory/current.json" "$directory/rendered.json" <<'NGINX_COMPOSE'
+import json,sys
+with open(sys.argv[1]) as stream:before=json.load(stream)
+with open(sys.argv[2]) as stream:after=json.load(stream)
+if before!=after:raise SystemExit('Compose 配置快照回读不一致，未更新容器')
+NGINX_COMPOSE
+  [ "$?" -eq 0 ] || return 1
+  # Preflight and recovery use the same frozen model, retaining the old image.
+  "${compose[@]}" pull "$ldnmp_pods" || return 1
+  "${compose[@]}" run --rm --no-deps --entrypoint nginx "$ldnmp_pods" -t || return 1
+  if "${compose[@]}" up -d --force-recreate "$ldnmp_pods" && nginx_wait_ready; then ready=true; fi
+  if [ "$ready" != true ]; then
+    if [ -z "$previous_image" ]; then
+      echo "Nginx 首次安装未通过就绪核验，没有旧镜像可恢复；请检查容器日志" >&2
+      return 86
+    fi
+    printf '{"services":{"nginx":{"image":"%s"}}}\n' "$previous_image" > "$directory/rollback.json"
+    if "${compose[@]}" -f "$directory/rollback.json" up -d --force-recreate --pull never "$ldnmp_pods" && nginx_wait_ready; then
+      echo "Nginx 更新失败，已恢复并核验旧镜像；请检查候选镜像日志" >&2
+    else
+      echo "Nginx 更新失败，旧镜像恢复未能通过核验；请检查容器日志" >&2
+      return 86
+    fi
+    return 1
+  fi
+  # Preserve the shared WAF minute rotation and unrelated administrator jobs.
+  (crontab -l 2>/dev/null | grep -Fvx '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf';
+   printf '%s\n' '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf') | crontab - || return 1
+  docker exec nginx chown -R nginx:nginx /var/www/html || return 1
+  docker exec nginx mkdir -p /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
+  docker exec nginx chown -R nginx:nginx /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
   send_stats "更新$ldnmp_pods"
   echo "更新${ldnmp_pods}完成"
-
+  )
 }
+
 
 phpmyadmin_upgrade() {
   local ldnmp_pods="phpmyadmin"
@@ -2516,6 +2563,7 @@ cf_purge_cache() {
 
 
 web_cache() {
+  shared_waf_refresh || return 1
   send_stats "清理站点缓存"
   cf_purge_cache
   cd /home/web && docker compose restart
@@ -2605,40 +2653,245 @@ kpanel_app_delete_sites() {
 }
 
 
-nginx_waf() {
-	local mode=$1
+shared_waf_revision() {
+	printf '%s\n' '8773850871f991b027f62841fde2795121251620'
+}
 
-	if ! grep -q "kjlion/nginx:alpine" /home/web/docker-compose.yml; then
-		wget -O /home/web/nginx.conf "${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/nginx10.conf"
+shared_waf_manifest() {
+	cat <<'WAF_MANIFEST'
+368d13a3a380783ec0739cba9cb12a9b05d94e1b701d9fb0ecfeef844e68d45c  configure.py
+f9cd06f5ac38b2cbf5b5262ef907b636c7d781101b3f8935d1dc7224a0e27c88  policy.py
+b1fe9fd2feefc366614a4f34678c9b6c58793eb69acc5c6fbaaa6d91a83543dc  nginx_edit.py
+aee6fd651ceb6441acce6dc6b510e504d7127b2bba1ce84ca361655590c615b0  example-policy.json
+e6be6df199bc4ad607b6bcd7273a62a4884e5aa841786db1d8d5a2284f573179  cloudflare-ips.json
+6fd82147b99201beebe7b1a983f146e5c23ade7f9454ac883830848b7f753e30  legacy-jails.local
+WAF_MANIFEST
+}
+
+shared_waf_verified() {
+	local directory="$1" checksum filename mode owner count=0 seen="|"
+	[ -d "$directory" ] && [ ! -L "$directory" ] || return 1
+	owner=$(stat -c '%u' "$directory") || return 1
+	mode=$(stat -c '%a' "$directory") || return 1
+	[ "$owner" = 0 ] && (( (8#$mode & 8#022) == 0 )) || return 1
+	while read -r checksum filename; do
+		[[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || return 1
+		case "$seen" in *"|$filename|"*) return 1 ;; esac
+		seen="${seen}${filename}|"; count=$((count + 1))
+		case "$filename" in configure.py|policy.py|nginx_edit.py|example-policy.json|cloudflare-ips.json|legacy-jails.local) ;;
+			*) return 1 ;;
+		esac
+		[ -f "$directory/$filename" ] && [ ! -L "$directory/$filename" ] || return 1
+		[ "$(stat -c '%u' "$directory/$filename")" = 0 ] || return 1
+		mode=$(stat -c '%a' "$directory/$filename") || return 1
+		(( (8#$mode & 8#022) == 0 )) || return 1
+		[ "$(sha256sum "$directory/$filename" | awk '{print $1}')" = "$checksum" ] || return 1
+	done < <(shared_waf_manifest)
+	[ "$count" -eq 6 ] && [ "$(find "$directory" -mindepth 1 -maxdepth 1 | wc -l)" -eq 6 ]
+}
+
+shared_waf_prepare() {
+	local revision base stage checksum filename interpreter
+	revision=$(shared_waf_revision)
+	[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo "WAF 来源版本尚未冻结" >&2; return 1; }
+	WAF_PYTHON=""
+	for interpreter in python3 python3.13 python3.12 python3.11; do
+		if command -v "$interpreter" >/dev/null 2>&1 && "$interpreter" -I -c 'import sys; raise SystemExit(sys.version_info < (3,11))' >/dev/null 2>&1; then
+			WAF_PYTHON=$(command -v "$interpreter"); break
+		fi
+	done
+	[ -n "$WAF_PYTHON" ] || { echo "WAF 配置工具需要 Python 3.11+，不会替换系统 Python" >&2; return 1; }
+	base=/home/web/config/waf/packages
+	# The same directory trust check used by the configuration tool, before mkdir/download.
+	"$WAF_PYTHON" -I - "$base" "$revision" <<'WAF_PATH'
+import os,pathlib,stat,sys
+path=pathlib.Path(sys.argv[1])
+for parent in [path,*path.parents]:
+ if not parent.exists() and not parent.is_symlink():continue
+ info=parent.lstat()
+ if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode & 0o022:
+  raise SystemExit('WAF 配置目录所有权或权限不可信')
+if path.exists():
+ count=total=0
+ for entry in path.iterdir():
+  count+=1
+  if count>16:raise SystemExit('WAF 版本缓存上限16份，请先归档旧版本')
+  info=entry.lstat()
+  if entry.is_symlink() or not entry.is_dir() or info.st_uid!=0 or info.st_mode & 0o022:raise SystemExit('WAF 缓存含不可信条目')
+  children=0
+  for child in entry.iterdir():
+   children+=1
+   if children>6:raise SystemExit('WAF 缓存含未知文件')
+   if child.is_symlink() or not child.is_file():raise SystemExit('WAF 缓存含未知文件类型')
+   total+=child.stat().st_size
+   if total>64*1024*1024:raise SystemExit('WAF 版本缓存超过64MiB，请先归档')
+ if not (path/sys.argv[2]).exists() and (count>=16 or total>52*1024*1024):
+  raise SystemExit('WAF 版本缓存余量不足，请先归档旧版本')
+WAF_PATH
+	[ "$?" -eq 0 ] || return 1
+	mkdir -p "$base" || return 1
+	WAF_DIRECTORY="$base/$revision"
+	if [ -e "$WAF_DIRECTORY" ] || [ -L "$WAF_DIRECTORY" ]; then
+		shared_waf_verified "$WAF_DIRECTORY" || { echo "WAF 缓存校验失败，已保留现场" >&2; return 1; }
+		return 0
 	fi
+	(
+	stage=$(mktemp -d "$base/.stage.XXXXXX") || return 1
+	trap 'for filename in configure.py policy.py nginx_edit.py example-policy.json cloudflare-ips.json legacy-jails.local; do rm -f -- "$stage/$filename"; done; rmdir -- "$stage" 2>/dev/null || true' EXIT
+	chmod 700 "$stage" || exit 1
+	while read -r checksum filename; do
+		if ! "$WAF_PYTHON" -I - "${gh_proxy:-https://}raw.githubusercontent.com/kejilion/nginx/$revision/waf/$filename" "$stage/$filename" <<'WAF_DOWNLOAD'
+import os,signal,sys,urllib.parse,urllib.request
+class HTTPSOnly(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,req,fp,code,msg,headers,url):
+  if urllib.parse.urlsplit(url).scheme!='https':raise ValueError('HTTPS required')
+  return super().redirect_request(req,fp,code,msg,headers,url)
+def expired(*args):raise TimeoutError('Download deadline exceeded')
+try:
+ if urllib.parse.urlsplit(sys.argv[1]).scheme!='https':raise ValueError('HTTPS required')
+ signal.signal(signal.SIGALRM,expired);signal.alarm(45)
+ with urllib.request.build_opener(HTTPSOnly()).open(sys.argv[1],timeout=10) as response:
+  data=response.read(2097153)
+ if len(data)>2097152:raise ValueError('Download exceeds budget')
+ fd=os.open(sys.argv[2],os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
+ with os.fdopen(fd,'wb') as stream:stream.write(data)
+except Exception:raise SystemExit(1)
+finally:signal.alarm(0)
+WAF_DOWNLOAD
+		then
+			echo "WAF 下载失败，未执行候选代码：$filename" >&2
+			return 1
+		fi
+		chmod 600 "$stage/$filename" || return 1
+	done < <(shared_waf_manifest)
+	shared_waf_verified "$stage" || { echo "WAF 来源摘要不符，未执行候选代码" >&2; return 1; }
+	# No replace of an existing revision; concurrent callers must verify the winner.
+	if ! mv -T "$stage" "$WAF_DIRECTORY" 2>/dev/null; then
+		shared_waf_verified "$WAF_DIRECTORY" || return 1
+	fi
+	shared_waf_verified "$WAF_DIRECTORY"
+	)
+}
 
-	# 根据 mode 参数来决定开启或关闭 WAF
-	if [ "$mode" == "on" ]; then
-		# 开启 WAF：去掉注释
-		sed -i 's|# load_module /etc/nginx/modules/ngx_http_modsecurity_module.so;|load_module /etc/nginx/modules/ngx_http_modsecurity_module.so;|' /home/web/nginx.conf > /dev/null 2>&1
-		sed -i 's|^\(\s*\)# modsecurity on;|\1modsecurity on;|' /home/web/nginx.conf > /dev/null 2>&1
-		sed -i 's|^\(\s*\)# modsecurity_rules_file /etc/nginx/modsec/modsecurity.conf;|\1modsecurity_rules_file /etc/nginx/modsec/modsecurity.conf;|' /home/web/nginx.conf > /dev/null 2>&1
-	elif [ "$mode" == "off" ]; then
-		# 关闭 WAF：加上注释
-		sed -i 's|^load_module /etc/nginx/modules/ngx_http_modsecurity_module.so;|# load_module /etc/nginx/modules/ngx_http_modsecurity_module.so;|' /home/web/nginx.conf > /dev/null 2>&1
-		sed -i 's|^\(\s*\)modsecurity on;|\1# modsecurity on;|' /home/web/nginx.conf > /dev/null 2>&1
-		sed -i 's|^\(\s*\)modsecurity_rules_file /etc/nginx/modsec/modsecurity.conf;|\1# modsecurity_rules_file /etc/nginx/modsec/modsecurity.conf;|' /home/web/nginx.conf > /dev/null 2>&1
+shared_waf_cached() {
+	local revision interpreter
+	revision=$(shared_waf_revision)
+	[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+	WAF_DIRECTORY="/home/web/config/waf/packages/$revision"
+	WAF_PYTHON=""
+	for interpreter in python3 python3.13 python3.12 python3.11; do
+		if command -v "$interpreter" >/dev/null 2>&1 && "$interpreter" -I -c 'import sys; raise SystemExit(sys.version_info < (3,11))' >/dev/null 2>&1; then
+			WAF_PYTHON=$(command -v "$interpreter"); break
+		fi
+	done
+	[ -n "$WAF_PYTHON" ] || return 1
+	# No mkdir or download: every ancestor must be stable before root execution.
+	"$WAF_PYTHON" -I - "$WAF_DIRECTORY" <<'WAF_CACHED_PATH'
+import pathlib,stat,sys
+path=pathlib.Path(sys.argv[1])
+for parent in [path,*path.parents]:
+ info=parent.lstat()
+ if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode & 0o022:
+  raise SystemExit('WAF 配置目录所有权或权限不可信')
+WAF_CACHED_PATH
+	[ "$?" -eq 0 ] && shared_waf_verified "$WAF_DIRECTORY"
+}
+
+shared_waf() {
+	# Native CLI requires action-first syntax; reject options before any preparation.
+	case "${1:-}" in
+		status) shared_waf_cached || return 1 ;;
+		plan|apply|configure|doctor|rollback|refresh-ips|retire-jails|existing-filters|rotation|trust-cloudflare) shared_waf_prepare || return 1 ;;
+		*) echo "用法: k web waf <action> [options]；状态查询: k web waf status" >&2; return 2 ;;
+	esac
+	"$WAF_PYTHON" -E -s -B "$WAF_DIRECTORY/configure.py" --root /home/web "$@"
+}
+
+shared_waf_refresh() {
+	[ -f /home/web/config/waf/policy.json ] || return 0
+	shared_waf apply
+}
+
+shared_waf_remove_rotation() {
+	(
+	local directory status
+	if ! command -v crontab >/dev/null 2>&1; then
+		[ ! -f /home/web/config/waf/policy.json ]; return $?
+	fi
+	umask 077
+	directory=$(mktemp -d /root/.waf-cron-cleanup.XXXXXX) || return 1
+	trap 'rm -f -- "$directory/before" "$directory/after" "$directory/error" "$directory/readback"; rmdir -- "$directory" 2>/dev/null || true' EXIT
+	if LC_ALL=C crontab -l > "$directory/before" 2> "$directory/error"; then :
 	else
-		echo "无效的参数：使用 'on' 或 'off'"
+		status=$?
+		if [ "$status" -eq 1 ] && [ ! -s "$directory/before" ]; then
+			grep -Eq "^(no crontab for [^/]+|crontab: (can't|cannot) open 'root': No such file or directory)$" "$directory/error" && return 0
+		fi
 		return 1
 	fi
+	# Remove only this package's tagged job; keep every administrator/SSH job.
+	awk '!(/# kejilion-waf-logrotate$/ && index($0," /home/web/config/waf/logrotate.conf >/dev/null 2>&1 ")>0)' "$directory/before" > "$directory/after" || return 1
+	cmp -s "$directory/before" "$directory/after" && return 0
+	if crontab "$directory/after" && crontab -l > "$directory/readback" && cmp -s "$directory/after" "$directory/readback"; then return 0; fi
+	crontab "$directory/before" || return 86
+	crontab -l > "$directory/readback" && cmp -s "$directory/before" "$directory/readback" || return 86
+	return 1
+	)
+}
 
-	# 检查 nginx 镜像并根据情况处理
-	if grep -q "kjlion/nginx:alpine" /home/web/docker-compose.yml; then
-		docker exec nginx nginx -s reload
+nginx_reload() {
+	if [ -f /home/web/config/waf/policy.json ]; then
+		shared_waf_refresh
 	else
-		sed -i 's|nginx:alpine|kjlion/nginx:alpine|g' /home/web/docker-compose.yml
-		nginx_upgrade
+		docker exec nginx nginx -t && docker exec nginx nginx -s reload
 	fi
+}
 
+nginx_waf() {
+	case "${1:-}" in on|off|detect) ;; *) echo "使用 on / off / detect" >&2; return 2 ;; esac
+	shared_waf_prepare || return 1
+	if ! docker exec nginx test -f /etc/nginx/modules/ngx_http_modsecurity_module.so; then
+		echo "当前镜像不支持 ModSecurity；请先按兼容说明迁移至 kjlion/nginx，再启用 WAF" >&2
+		return 1
+	fi
+	# Dependencies are checked before changing inspection or existing jails.
+	if [ "$1" != off ]; then
+		command -v logrotate >/dev/null 2>&1 && command -v crontab >/dev/null 2>&1 || {
+			echo "请先安装 logrotate 并启用 cron，再配置 WAF" >&2; return 1;
+		}
+	fi
+	# The rotation preflight must succeed before changing request inspection.
+	if [ "$1" != off ]; then shared_waf rotation || return 1; fi
+	local result backup
+	result=$(shared_waf configure --mode "$1") || return 1
+	# Refresh only an existing managed event source; preserve every action/backend.
+	if ! shared_waf existing-filters; then
+		backup=$(printf '%s' "$result" | "$WAF_PYTHON" -I -c 'import json,sys; print(json.load(sys.stdin).get("backup",""))') || return 1
+		if [ -n "$backup" ]; then shared_waf rollback --backup "$backup" || return 1; fi
+		return 1
+	fi
+	printf '%s\n' "$result"
+}
+
+shared_waf_mode() {
+	shared_waf_cached || return 1
+	"$WAF_PYTHON" -E -s -B "$WAF_DIRECTORY/configure.py" --root /home/web status |
+		"$WAF_PYTHON" -I -c 'import json,sys; s=json.load(sys.stdin)["mode"]; assert s in {"on","off","detect","mixed"}; print(s)'
+	local -a statuses=("${PIPESTATUS[@]}")
+	[ "${statuses[0]}" -eq 0 ] && [ "${statuses[1]}" -eq 0 ]
 }
 
 check_waf_status() {
+	if [ -f /home/web/config/waf/policy.json ]; then
+		case "$(shared_waf_mode 2>/dev/null)" in
+			on) waf_status=" WAF已开启" ;;
+			detect) waf_status=" WAF检测模式" ;;
+			mixed) waf_status=" WAF按站点配置" ;;
+			off) waf_status="" ;;
+			*) waf_status=" WAF状态待核验" ;;
+		esac
+		return
+	fi
 	if grep -q "^\s*#\s*modsecurity on;" /home/web/nginx.conf; then
 		waf_status=""
 	elif grep -q "modsecurity on;" /home/web/nginx.conf; then
@@ -2808,7 +3061,7 @@ nginx_br() {
 
 	# 检查 nginx 镜像并根据情况处理
 	if grep -q "kjlion/nginx:alpine" /home/web/docker-compose.yml; then
-		docker exec nginx nginx -s reload
+		nginx_reload
 	else
 		sed -i 's|nginx:alpine|kjlion/nginx:alpine|g' /home/web/docker-compose.yml
 		nginx_upgrade
@@ -2865,7 +3118,7 @@ nginx_zstd() {
 
 	# 检查 nginx 镜像并根据情况处理
 	if grep -q "kjlion/nginx:alpine" /home/web/docker-compose.yml; then
-		docker exec nginx nginx -s reload
+		nginx_reload
 	else
 		sed -i 's|nginx:alpine|kjlion/nginx:alpine|g' /home/web/docker-compose.yml
 		nginx_upgrade
@@ -5520,7 +5773,7 @@ install_dependency
 install_docker
 install_certbot
 install_ldnmp_conf
-nginx_upgrade
+nginx_upgrade || return $?
 clear
 local nginx_version=$(docker exec nginx nginx -v 2>&1)
 local nginx_version=$(echo "$nginx_version" | grep -oP "nginx/\K[0-9]+\.[0-9]+\.[0-9]+")
@@ -5568,6 +5821,7 @@ ldnmp_web_on() {
 }
 
 nginx_web_on() {
+	shared_waf_refresh || return 1
 	if kpanel_web_http_mode; then
 		echo "http://$yuming:$KJ_WEB_HTTP_PORT"
 		return 0
@@ -14757,9 +15011,13 @@ ldnmp_environment_status() {
 		  docker inspect -f '{{.Id}} {{.Image}} {{.State.Status}}' nginx mysql php php74 redis 2>/dev/null; } |
 			sha256sum | awk '{print $1}'
 	)
-	local fail2ban=false waf=false cloudflare=false ddos=false mode=custom gzip=false brotli=false zstd=false
+	local fail2ban=false waf=false waf_mode=off cloudflare=false ddos=false mode=custom gzip=false brotli=false zstd=false
 	command -v fail2ban-client >/dev/null 2>&1 && fail2ban=true
 	grep -qE '^[[:space:]]*modsecurity on;' /home/web/nginx.conf 2>/dev/null && waf=true
+	if [ -f /home/web/config/waf/policy.json ]; then
+		waf_mode=$(shared_waf_mode 2>/dev/null) || waf_mode=unknown
+		case "$waf_mode" in on) waf=true ;; *) waf=false ;; esac
+	elif [ "$waf" = true ]; then waf_mode=legacy; fi
 	[ -f /etc/fail2ban/action.d/cloudflare-docker.conf ] && cloudflare=true
 	iptables -C INPUT -p tcp --syn -j DROP >/dev/null 2>&1 && ddos=true
 	docker exec mysql grep -q 4096M /etc/mysql/conf.d/custom_mysql_config.cnf 2>/dev/null && mode=high
@@ -14783,8 +15041,8 @@ ldnmp_environment_status() {
 	kpanel_ldnmp_component nginx true; printf ','; kpanel_ldnmp_component mysql true; printf ','
 	kpanel_ldnmp_component php true; printf ','; kpanel_ldnmp_component php74 false; printf ','
 	kpanel_ldnmp_component redis true
-	printf '],"protection":{"fail2ban":%s,"waf":%s,"cloudflare":%s,"ddos":%s},"optimization":{"mode":"%s","gzip":%s,"brotli":%s,"zstd":%s},"observedAt":"%s"}\n' \
-		"$fail2ban" "$waf" "$cloudflare" "$ddos" "$mode" "$gzip" "$brotli" "$zstd" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+	printf '],"protection":{"fail2ban":%s,"waf":%s,"wafMode":"%s","cloudflare":%s,"ddos":%s},"optimization":{"mode":"%s","gzip":%s,"brotli":%s,"zstd":%s},"observedAt":"%s"}\n' \
+		"$fail2ban" "$waf" "$waf_mode" "$cloudflare" "$ddos" "$mode" "$gzip" "$brotli" "$zstd" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 }
 
 ldnmp_environment_catalog() {
@@ -14869,6 +15127,9 @@ ldnmp_protection_action_apply() {
 }
 
 ldnmp_protection_action() {
+	# Shared WAF owns its full configuration transaction and readiness verification.
+	# The legacy snapshot below cannot restore that write set and must not wrap it.
+	case "$1" in waf-on) nginx_waf on; return $? ;; waf-off) nginx_waf off; return $? ;; esac
 	local action="$1" snapshot rc=0 fail2ban_existed=false
 	snapshot=$(mktemp -d /home/.kpanel-ldnmp-protection.XXXXXX) || return 1
 	if [ -d /etc/fail2ban ]; then
@@ -15007,29 +15268,42 @@ ldnmp_update_action() {
 }
 
 ldnmp_backup_action() {
+	(
+	set -o pipefail
 	[ -d /home/web ] || return 1
-	local stamp archive tmp checksum source_bytes free_bytes running_services
-	stamp=$(date '+%Y%m%d%H%M%S'); archive="/home/web_${stamp}.tar.gz"; tmp="${archive}.tmp.$$"
-	source_bytes=$(du -sb /home/web 2>/dev/null | awk '{print $1}')
-	free_bytes=$(df -PB1 /home | awk 'NR==2 {print $4}')
+	local stamp archive tmp metadata checksum verified source_bytes free_bytes running_services stopped=false status
+	stamp=$(date '+%Y%m%d%H%M%S') || return 1
+	archive="/home/web_${stamp}.tar.gz"
+	[ ! -e "$archive" ] && [ ! -L "$archive" ] && [ ! -e "${archive}.kpanel.json" ] && [ ! -L "${archive}.kpanel.json" ] || return 1
+	source_bytes=$(du -sb /home/web 2>/dev/null | awk '{print $1}') || return 1
+	free_bytes=$(df -PB1 /home | awk 'NR==2 {print $4}') || return 1
+	[[ "$source_bytes" =~ ^[0-9]+$ && "$free_bytes" =~ ^[0-9]+$ ]] || return 1
 	[ "${source_bytes:-0}" -le $((free_bytes * 8 / 10)) ] || return 1
+	umask 077
+	tmp=$(mktemp /home/.ldnmp-backup.XXXXXX) || return 1
+	metadata=$(mktemp /home/.ldnmp-backup-meta.XXXXXX) || { rm -f -- "$tmp"; return 1; }
+	trap 'status=$?; trap - EXIT; rm -f -- "$tmp" "$metadata"; if [ "$stopped" = true ] && [ -n "$running_services" ]; then docker compose start $running_services || status=86; fi; exit "$status"' EXIT
 	kpanel_ldnmp_event backup_stop 15 "正在短暂停止 LDNMP"
 	cd /home/web || return 1
-	running_services=$(docker compose ps --services --filter status=running 2>/dev/null | tr '\n' ' ')
+	running_services=$(docker compose ps --services --filter status=running 2>/dev/null | tr '\n' ' ') || return 1
+	set -f
+	stopped=true
 	docker compose stop || return 1
 	kpanel_ldnmp_event backup_archive 45 "正在归档 /home/web"
-	if ! tar -C /home -czf "$tmp" web; then
-		[ -n "$running_services" ] && docker compose start $running_services >/dev/null 2>&1
-		rm -f "$tmp"
-		return 1
-	fi
-	chmod 600 "$tmp"; checksum=$(sha256sum "$tmp" | awk '{print $1}'); mv -f "$tmp" "$archive"
-	umask 077
+	tar -C /home -czf "$tmp" web && gzip -t "$tmp" && chmod 600 "$tmp" || return 1
+	checksum=$(sha256sum "$tmp" | awk '{print $1}') || return 1
+	[[ "$checksum" =~ ^[a-f0-9]{64}$ ]] || return 1
 	printf '{"format":"kejilion-ldnmp-v1","file":"%s","sha256":"%s","createdAt":"%s","scriptVersion":"%s"}\n' \
-		"$(basename "$archive")" "$checksum" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$sh_v" > "${archive}.kpanel.json"
+		"$(basename "$archive")" "$checksum" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$sh_v" > "$metadata" || return 1
+	chmod 600 "$metadata" && mv -f -- "$tmp" "$archive" && mv -f -- "$metadata" "${archive}.kpanel.json" || return 1
+	[ -s "$archive" ] && [ ! -L "$archive" ] && [ -s "${archive}.kpanel.json" ] && [ ! -L "${archive}.kpanel.json" ] || return 1
+	verified=$(sha256sum "$archive" | awk '{print $1}') || return 1
+	[ "$verified" = "$checksum" ] && grep -Fq "\"sha256\":\"$checksum\"" "${archive}.kpanel.json" || return 1
 	kpanel_ldnmp_event backup_start 80 "正在恢复 LDNMP"
-	[ -z "$running_services" ] || docker compose start $running_services
+	if [ -n "$running_services" ]; then docker compose start $running_services || return 86; fi
+	stopped=false
 	printf 'KPANEL_LDNMP_BACKUP %s\n' "$(basename "$archive")"
+	)
 }
 
 ldnmp_backup_delete_action() {
@@ -15091,13 +15365,16 @@ ldnmp_restore_action() {
 }
 
 ldnmp_uninstall_action() {
-	[ "${1:-false}" = true ] && ldnmp_backup_action
+	if [ "${1:-false}" = true ]; then ldnmp_backup_action || return $?; fi
 	if [ -d /home/web ]; then
 		cd /home/web || return 1
-		docker compose down --rmi all
-		[ -f docker-compose.phpmyadmin.yml ] && docker compose -f docker-compose.phpmyadmin.yml down --rmi all >/dev/null 2>&1
-		rm -rf /home/web
+		docker compose down --rmi all || return 1
+		if [ -f docker-compose.phpmyadmin.yml ]; then
+			docker compose -f docker-compose.phpmyadmin.yml down --rmi all >/dev/null 2>&1 || return 1
+		fi
 	fi
+	shared_waf_remove_rotation || return $?
+	[ ! -d /home/web ] || rm -rf /home/web
 }
 
 kpanel_ldnmp_run() {
@@ -16244,11 +16521,7 @@ linux_ldnmp() {
 		read -e -p "$(echo -e "${gl_hong}强烈建议：${gl_bai}先备份全部网站数据，再卸载LDNMP环境。确定删除所有网站数据吗？(Y/N): ")" choice
 		case "$choice" in
 		  [Yy])
-			cd /home/web/
-			docker compose down --rmi all
-			docker compose -f docker-compose.phpmyadmin.yml down > /dev/null 2>&1
-			docker compose -f docker-compose.phpmyadmin.yml down --rmi all > /dev/null 2>&1
-			rm -rf /home/web
+			ldnmp_uninstall_action false || return $?
 			;;
 		  [Nn])
 
@@ -33263,6 +33536,9 @@ else
 				shift
 				kpanel_web_replace_certificate "$@"
 				exit $?
+			elif [ "$1" = "waf" ]; then
+				shift
+				shared_waf "$@"
 			elif [ "$1" = "cache" ]; then
 				web_cache
 			elif [ "$1" = "del" ] || [ "$1" = "delete" ] || [ "$1" = "删除" ]; then
