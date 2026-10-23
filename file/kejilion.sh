@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.5.13"
+sh_v="4.5.14"
 
 
 gl_hui='\e[37m'
@@ -2439,62 +2439,991 @@ nginx_wait_ready() {
   return 1
 }
 
-nginx_upgrade() {
+nginx_config_update() {
+  python3 -I - "$@" <<'NGINX_CONFIG_UPDATE'
+"""Embedded in kejilion.sh; configuration and image updates share one journal."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+LEGACY = '99f7169d84901be3f34452f375b3e0079cd86b4c'
+REVISION = '8773850871f991b027f62841fde2795121251620'
+SOURCES = {
+    LEGACY: {
+        'nginx10.conf': 'a4384558dde49df81cefc3da3133daa917563149a002790d5a270701c28a1fbb',
+        'default10.conf': 'f65ae70cad814841572003addf7fe83dc797d0403af54d2520b94871a58447bc',
+        'default11.conf': '8020fb1aa901931c1d0f5e5919159d21eeffe5aa595e80d454c71b6f2bae7ac9',
+        'map.conf': 'c35a546a15a40633af6fa8d5f77e5426f03c545e88aeb915bd3a41de9a5ff684',
+    },
+    REVISION: {
+        'nginx10.conf': 'de56702ed3a5f995059469b833b96c0187a64a5adf912e253800afe683323df3',
+        'default10.conf': '732003ecee46b0c1c17b81439b164e0b8804dcbc27dbd863dd89079006b84d17',
+        'default11.conf': 'd5ba2ae3f712e5ec9631ba0e74bbfcfc0fd80efbab61c4abf74036ddccd524a9',
+        'map.conf': 'c35a546a15a40633af6fa8d5f77e5426f03c545e88aeb915bd3a41de9a5ff684',
+    },
+}
+STATE = 'config/nginx-update.json'
+MAX_FILES, MAX_BYTES, MAX_BACKUPS = 512, 64 * 1024 * 1024, 16
+RUNTIME_PATHS = {
+    'php': ('/usr/local/etc/php-fpm.d/www.conf', '/usr/local/etc/php-fpm.d/zz-docker.conf',
+            '/usr/local/etc/php/conf.d/optimized_php.ini'),
+    'php74': ('/usr/local/etc/php-fpm.d/www.conf', '/usr/local/etc/php-fpm.d/zz-docker.conf',
+              '/usr/local/etc/php/conf.d/optimized_php.ini'),
+    'mysql': ('/etc/mysql/conf.d/custom_mysql_config.cnf',),
+}
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def command(*args):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, timeout=300)
+    if result.returncode:
+        # Commands may contain Compose-expanded credentials; never echo their argv.
+        raise RuntimeError('命令执行失败: ' + result.stderr[-2000:])
+    return result.stdout
+
+
+def trusted(path, directory=False):
+    info = path.lstat()
+    if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
+        raise ValueError('配置路径类型不受支持: ' + str(path))
+    if hasattr(os, 'geteuid') and (info.st_uid != 0 or info.st_mode & 0o022):
+        raise ValueError('配置路径所有权或权限不可信: ' + str(path))
+    return info
+
+
+def write(path, data, mode=0o600, inplace=False):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for parent in [path.parent, *path.parent.parents]:
+        trusted(parent, directory=True)
+    if path.exists() or path.is_symlink():
+        trusted(path)
+    # Keep the inode of existing configuration files: Docker may bind-mount a file.
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0)
+    temporary = path if inplace else path.with_name(path.name + '.tmp')
+    descriptor = os.open(temporary, flags | (os.O_TRUNC if inplace else os.O_EXCL), mode)
+    try:
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if not inplace:
+            os.replace(temporary, path)
+    finally:
+        if not inplace and temporary.exists():
+            temporary.unlink()
+
+
+def json_write(path, value):
+    write(path, (json.dumps(value, ensure_ascii=False) + '\n').encode())
+
+
+def changed_paths(before, after, path=''):
+    if isinstance(before, dict) and isinstance(after, dict):
+        return [item for key in before.keys() | after.keys()
+                for item in changed_paths(before.get(key), after.get(key), path + '/' + key)]
+    if before != after:
+        return [path]
+    return []
+
+
+def inventory(root):
+    result, total = {}, 0
+    paths = [root / 'nginx.conf', root / STATE]
+    paths.extend(root.glob('*compose*.y*ml'))
+    for name in ('conf.d', 'stream.d', 'config/waf'):
+        directory = root / name
+        if not directory.exists() and not directory.is_symlink():
+            continue
+        trusted(directory, directory=True)
+        for current, directories, files in os.walk(directory, followlinks=False):
+            # Executable packages and their independent WAF recovery points are immutable
+            # inputs, not generated configuration. Do not duplicate them in every backup.
+            if Path(current) == root / 'config/waf':
+                directories[:] = [item for item in directories if item != 'packages']
+            for item in directories:
+                trusted(Path(current) / item, directory=True)
+            paths.extend(Path(current) / item for item in files)
+    for path in paths:
+        if not path.exists() and not path.is_symlink():
+            continue
+        info = trusted(path)
+        total += info.st_size
+        if info.st_size > 2 * 1024 * 1024 or total > MAX_BYTES or len(result) >= MAX_FILES:
+            raise ValueError('配置备份超过 512 文件 / 单文件 2MiB / 总计 64MiB 上限')
+        result[str(path.relative_to(root))] = {'sha256': digest(path.read_bytes()),
+                                             'mode': stat.S_IMODE(info.st_mode)}
+    return result
+
+
+def tokens(text):
+    """Tokenize Nginx quotes, escapes, comments and ${variables}, retaining spans."""
+    result, index = [], 0
+    while index < len(text):
+        if text[index].isspace():
+            index += 1
+            continue
+        if text[index] == '#':
+            end = text.find('\n', index)
+            index = len(text) if end < 0 else end + 1
+            continue
+        start, value = index, ''
+        if text[index] in '{};':
+            index += 1
+            result.append((text[start:index], start, index, True))
+            continue
+        quote = None
+        while index < len(text):
+            char = text[index]
+            if char == '\\':
+                if index + 1 >= len(text):
+                    raise ValueError('配置存在未闭合转义')
+                value += text[index:index + 2]
+                index += 2
+                continue
+            if quote:
+                index += 1
+                if char == quote:
+                    quote = None
+                else:
+                    value += char
+                continue
+            if char in '\"\'':
+                quote = char
+                index += 1
+                continue
+            if text[index:index + 2] == '${':
+                end = text.find('}', index + 2)
+                if end < 0:
+                    raise ValueError('配置变量未闭合')
+                value += text[index:end + 1]
+                index = end + 1
+                continue
+            if char.isspace() or char in '{};#':
+                break
+            value += char
+            index += 1
+        if quote:
+            raise ValueError('配置字符串未闭合')
+        result.append((value, start, index, False))
+    return result
+
+
+def parse(text):
+    stream, position = tokens(text), 0
+
+    def scope(nested=False):
+        nonlocal position
+        children = []
+        while position < len(stream):
+            if stream[position][0] == '}' and stream[position][3]:
+                if not nested:
+                    raise ValueError('配置存在多余右括号')
+                end = stream[position][1]
+                position += 1
+                return children, end
+            header, start = [], stream[position][1]
+            while position < len(stream) and not stream[position][3]:
+                header.append(stream[position][0])
+                position += 1
+            if not header or position == len(stream):
+                raise ValueError('配置指令不完整')
+            delimiter = stream[position]
+            position += 1
+            if delimiter[0] == ';':
+                children.append({'header': tuple(header), 'start': start,
+                                 'end': delimiter[2], 'children': None})
+            elif delimiter[0] == '{':
+                body, closing = scope(True)
+                children.append({'header': tuple(header), 'start': start,
+                                 'end': stream[position - 1][2], 'children': body,
+                                 'opening': delimiter[2], 'closing': closing})
+            else:
+                raise ValueError('配置指令缺少分号')
+        if nested:
+            raise ValueError('配置块未闭合')
+        return children, len(text)
+
+    return scope()[0]
+
+
+def identity(node):
+    header = node['header']
+    if node['children'] is not None:
+        return header
+    if header[0] in {'include', 'load_module', 'set_real_ip_from', 'proxy_hide_header',
+                     'fastcgi_hide_header', 'listen', 'proxy_set_header', 'add_header',
+                     'set', 'fastcgi_param'}:
+        return header[:2]
+    return header[:1]
+
+
+def merge_configuration(old, live, new):
+    """Three-way merge directives by scope. Never rewrite user-changed values."""
+    old, live, new = (text.replace('\r\n', '\n') for text in (old, live, new))
+    edits, preserved = [], []
+
+    def group(nodes):
+        result = {}
+        for node in nodes:
+            result.setdefault(identity(node), []).append(node)
+        return result
+
+    def equivalent(left, right):
+        return (left['header'] == right['header'] and
+                ((left['children'] is None and right['children'] is None) or
+                 (left['children'] is not None and right['children'] is not None and
+                  len(left['children']) == len(right['children']) and
+                  all(equivalent(a, b) for a, b in zip(left['children'], right['children'])))))
+
+    def visit(before, current, after, insert, context):
+        b, c, a = group(before), group(current), group(after)
+        additions = []
+        for key in dict.fromkeys([*b, *a]):
+            previous, actual, target = b.get(key, []), c.get(key, []), a.get(key, [])
+            if key[0] in {'gzip', 'gzip_static', 'brotli', 'brotli_static', 'zstd', 'zstd_static',
+                          'modsecurity', 'worker_processes', 'worker_connections'}:
+                continue
+            if len(previous) == len(target) and all(equivalent(x, y) for x, y in zip(previous, target)):
+                continue
+            if max(len(previous), len(actual), len(target)) > 1:
+                preserved.append(context + '/' + ' '.join(key))
+                continue
+            if not previous:
+                if not actual:
+                    additions.append(new[target[0]['start']:target[0]['end']])
+                elif not equivalent(actual[0], target[0]):
+                    preserved.append(context + '/' + ' '.join(key))
+            elif not actual:
+                # An administrator deleted/disabled this directive; retain that choice.
+                preserved.append(context + '/' + ' '.join(key))
+            elif not target:
+                if equivalent(previous[0], actual[0]):
+                    edits.append((actual[0]['start'], actual[0]['end'], ''))
+                else:
+                    preserved.append(context + '/' + ' '.join(key))
+            elif all(item['children'] is not None for item in (previous[0], actual[0], target[0])):
+                visit(previous[0]['children'], actual[0]['children'], target[0]['children'],
+                      actual[0]['closing'], context + '/' + ' '.join(key))
+            elif equivalent(actual[0], previous[0]):
+                edits.append((actual[0]['start'], actual[0]['end'],
+                              new[target[0]['start']:target[0]['end']]))
+            elif not equivalent(actual[0], target[0]):
+                preserved.append(context + '/' + ' '.join(key))
+        if additions:
+            edits.append((insert, insert, '\n' + '\n'.join(additions) + '\n'))
+
+    visit(parse(old), parse(live), parse(new), 0, '')
+    for start, end, replacement in sorted(edits, reverse=True):
+        live = live[:start] + replacement + live[end:]
+    parse(live)
+    return live, preserved
+
+
+def download(revision, name, prefix):
+    url = prefix + 'raw.githubusercontent.com/kejilion/nginx/' + revision + '/' + name
+    if urllib.parse.urlsplit(url).scheme != 'https':
+        raise ValueError('配置来源必须使用 HTTPS')
+
+    class SecureRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, target):
+            if urllib.parse.urlsplit(target).scheme != 'https':
+                raise ValueError('拒绝非 HTTPS 重定向')
+            return super().redirect_request(req, fp, code, msg, headers, target)
+
+    with urllib.request.build_opener(SecureRedirect()).open(url, timeout=15) as response:
+        data = response.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024 or digest(data) != SOURCES[revision][name]:
+        raise ValueError('配置模板摘要校验失败: ' + name)
+    return data.decode('utf-8')
+
+
+def migrate(root, stage, prefix):
+    state_path = root / STATE
+    state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else {'files': {}, 'templates': {}}
+    if state.get('schemaVersion', 1) != 1:
+        raise ValueError('不支持的 Nginx 配置版本记录')
+    cached = state.get('templates', {})
+
+    def template(revision, name):
+        text = cached.get(revision + '/' + name)
+        if text is None:
+            text = download(revision, name, prefix)
+            cached[revision + '/' + name] = text
+        if digest(text.encode()) != SOURCES[revision][name]:
+            raise ValueError('本地模板基线摘要校验失败')
+        return text
+
+    records, messages = {}, []
+    paths = {'nginx.conf': 'nginx10.conf', 'conf.d/map.conf': 'map.conf'}
+    default = stage / 'conf.d/default.conf'
+    if default.exists():
+        cf = any(n['header'] == ('real_ip_header', 'CF-Connecting-IP') for n in parse(default.read_text(encoding='utf-8')))
+        paths['conf.d/default.conf'] = 'default11.conf' if cf else 'default10.conf'
+    for relative, source in paths.items():
+        path = stage / relative
+        if not path.exists():
+            continue
+        live = path.read_text(encoding='utf-8')
+        if relative == 'nginx.conf' and not all(item in live for item in (
+                '/var/cache/nginx/proxy', '/var/cache/nginx/fastcgi', '/etc/nginx/conf.d/*.conf')):
+            messages.append(relative + ': 未识别为标准主配置，保留原内容')
+            continue
+        record = state.get('files', {}).get(relative, {})
+        before_revision = record.get('revision', LEGACY)
+        if record.get('source', source) != source:
+            if relative == 'conf.d/default.conf' and record.get('source') in {'default10.conf', 'default11.conf'}:
+                # Native CDN on/off replaces the default-server template intentionally.
+                # Establish the corresponding known baseline instead of blocking updates.
+                before_revision = LEGACY
+            else:
+                raise ValueError('配置基线来源冲突: ' + relative)
+        if before_revision not in SOURCES:
+            raise ValueError('配置基线版本或默认站点模式冲突: ' + relative)
+        merged, preserved = merge_configuration(template(before_revision, source), live,
+                                                template(REVISION, source))
+        path.write_bytes(merged.encode('utf-8'))
+        records[relative] = {'revision': REVISION, 'source': source}
+        if preserved:
+            messages.append(relative + ': 保留自定义项 ' + ', '.join(preserved))
+    # Baselines are only authoritative for successfully validated configurations.
+    return {'schemaVersion': 1, 'files': records, 'templates': cached}, messages
+
+
+def snapshot(root, directory):
+    backups = root / 'backups/nginx-update'
+    backups.mkdir(parents=True, exist_ok=True, mode=0o700)
+    trusted(backups, directory=True)
+    entries = list(backups.iterdir())
+    if len(entries) > MAX_BACKUPS:
+        raise ValueError('Nginx 恢复点已达16份，请先归档旧恢复点')
+    size = 0
+    for entry in entries:
+        trusted(entry, directory=True)
+        if entry != directory and (entry / 'journal.json').exists():
+            previous = json.loads((entry / 'journal.json').read_text(encoding='utf-8'))
+            if previous.get('phase') not in {'committed', 'rolled-back'}:
+                raise ValueError('存在未完成的更新恢复点，请先检查恢复: ' + str(entry))
+        for current, directories, files in os.walk(entry, followlinks=False):
+            if Path(current) == entry:
+                directories[:] = [item for item in directories if item != 'data']
+            for item in directories:
+                trusted(Path(current) / item, directory=True)
+            for item in files:
+                size += trusted(Path(current) / item).st_size
+    before = inventory(root)
+    needed = sum((root / name).stat().st_size for name in before)
+    if size + needed * 3 + 3 * 1024 * 1024 > MAX_BYTES or shutil.disk_usage(root).free < needed * 3 + 3 * 1024 * 1024:
+        raise ValueError('Nginx 配置备份空间不足或超过64MiB预算，请先归档旧恢复点')
+    for name in before:
+        target = directory / 'before' / name
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        data = (root / name).read_bytes()
+        if digest(data) != before[name]['sha256']:
+            raise ValueError('备份期间配置发生变化，未执行更新')
+        target.write_bytes(data)
+    json_write(directory / 'journal.json', {'before': before, 'touched': {}, 'phase': 'prepared'})
+
+
+def remember(root, directory):
+    # A difference is not ownership: SSH administrators do not hold our lock.
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    current = inventory(root)
+    for name in journal['before'].keys() | current.keys():
+        expected = journal['touched'].get(name, journal['before'].get(name))
+        if expected != current.get(name):
+            raise ValueError('配置发生变化，保留管理员修改: ' + name)
+    return journal
+
+
+def install_configuration(root, directory, name, data, mode):
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    journal['touched'][name] = {'sha256': digest(data), 'mode': mode}
+    json_write(directory / 'journal.json', journal)
+    # SIGINT/SIGTERM cannot interrupt the inode-preserving write before its actual
+    # postimage is durable in the journal. SIGKILL/power loss remain explicit risks.
+    blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM}) if hasattr(signal, 'pthread_sigmask') else None
+    try:
+        try:
+            write(root / name, data, mode, inplace=True)
+        except BaseException:
+            journal['touched'][name] = {'sha256': digest((root / name).read_bytes()), 'mode': mode}
+            json_write(directory / 'journal.json', journal)
+            raise
+    finally:
+        if blocked is not None:
+            signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+
+
+def restore_files(root, directory):
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    for name, expected in journal['touched'].items():
+        path = root / name
+        actual = {'sha256': digest(path.read_bytes()), 'mode': stat.S_IMODE(trusted(path).st_mode)} if path.exists() else None
+        before = journal['before'].get(name)
+        if actual == before:
+            continue
+        if actual != expected:
+            raise ValueError('配置在更新期间被其他进程修改，保留恢复点: ' + name)
+        if before is None:
+            if path.exists():
+                path.unlink()
+        else:
+            data = (directory / 'before' / name).read_bytes()
+            if digest(data) != before['sha256']:
+                raise ValueError('恢复点摘要校验失败: ' + name)
+            write(path, data, before['mode'], inplace=True)
+            os.chmod(path, before['mode'])
+
+
+def compose_file(directory, name, model):
+    path = directory / name
+    # `compose config --format json` already escapes interpolation dollars.
+    # Re-escaping its canonical model would change container environment values.
+    json_write(path, model)
+    return ['docker', 'compose', '--project-directory', str(directory.parents[2]), '-f', str(path)]
+
+
+def snapshot_runtime(directory, compose, previous):
+    records, total = {}, 0
+    runtime = directory / 'runtime'
+    runtime.mkdir(mode=0o700)
+    for service, paths in RUNTIME_PATHS.items():
+        if service not in previous:
+            continue
+        identifiers = command(*compose, 'ps', '-a', '-q', service).split()
+        if len(identifiers) != 1:
+            raise ValueError('PHP/MySQL 配置恢复需要单个服务实例: ' + service)
+        identifier = identifiers[0]
+        records[service] = []
+        for index, path in enumerate(paths):
+            name = service + '-' + str(index)
+            saved = runtime / name
+            try:
+                command('docker', 'cp', identifier + ':' + path, str(saved))
+            except RuntimeError as error:
+                if 'Could not find the file' not in str(error) and 'no such file or directory' not in str(error):
+                    raise
+                records[service].append({'path': path, 'file': None})
+                continue
+            info = trusted(saved)
+            total += info.st_size
+            if info.st_size > 128 * 1024 or total > 512 * 1024:
+                raise ValueError('PHP/MySQL 配置恢复点超过单文件128KiB / 总计512KiB上限')
+            records[service].append({'path': path, 'file': name, 'sha256': digest(saved.read_bytes())})
+    json_write(directory / 'runtime.json', records)
+
+
+def restore_runtime(directory, compose):
+    records = json.loads((directory / 'runtime.json').read_text(encoding='utf-8'))
+    for service, files in records.items():
+        identifiers = command(*compose, 'ps', '-a', '-q', service).split()
+        for identifier in identifiers:
+            for item in files:
+                if item['file'] is None:
+                    # Empty .conf/.ini has the same semantics as an absent file,
+                    # and docker cp works before the new entrypoint ever starts.
+                    saved = directory / 'runtime/empty'
+                    if not saved.exists():
+                        saved.write_bytes(b'')
+                        saved.chmod(0o644)
+                    command('docker', 'cp', str(saved), identifier + ':' + item['path'])
+                else:
+                    saved = directory / 'runtime' / item['file']
+                    trusted(saved)
+                    if digest(saved.read_bytes()) != item['sha256']:
+                        raise ValueError('PHP/MySQL 配置恢复点摘要不一致')
+                    command('docker', 'cp', str(saved), identifier + ':' + item['path'])
+
+
+def data_sources(compose, services, verify_active=False):
+    records = []
+    for service, target in (('mysql', '/var/lib/mysql'), ('redis', '/data')):
+        if service not in services:
+            continue
+        identifiers = command(*compose, 'ps', '-a', '-q', service).split()
+        if len(identifiers) != 1:
+            raise ValueError('完整更新需要已有的单实例数据库和持久化挂载: ' + service)
+        container = json.loads(command('docker', 'inspect', identifiers[0]))[0]
+        if verify_active and not container['State']['Running']:
+            raise ValueError('数据库未运行，无法核验实际数据目录，未执行完整更新: ' + service)
+        def private_socket(path, base):
+            if not path:
+                return
+            if not path.startswith('/'):
+                path = base + '/' + path
+            actual = command('docker', 'exec', identifiers[0], 'readlink', '-f', path).strip()
+            for mount in container['Mounts']:
+                if mount['Type'] not in {'bind', 'volume'}:
+                    continue
+                mounted = command('docker', 'exec', identifiers[0], 'readlink', '-f', mount['Destination']).strip()
+                if actual == mounted or actual.startswith(mounted.rstrip('/') + '/'):
+                    raise ValueError('数据库 Unix socket 位于共享挂载，无法隔离候选写入')
+        if service == 'mysql' and container['State']['Running']:
+            def mysql(query):
+                return command('docker', 'exec', identifiers[0], 'sh', '-c',
+                               'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; '
+                               'exec mysql -uroot --batch --skip-column-names -e "$1"', 'sh', query).rstrip('\r\n')
+            datadir = os.path.normpath(mysql('SELECT @@datadir'))
+            if datadir != target and not datadir.startswith(target + '/'):
+                raise ValueError('MySQL 使用标准持久化挂载之外的数据目录，未执行切换')
+            def inside(value):
+                value = os.path.normpath(value if value.startswith('/') else datadir + '/' + value)
+                return value == target or value.startswith(target + '/')
+            variables = mysql("SHOW VARIABLES WHERE Variable_name IN ('innodb_data_home_dir','innodb_undo_directory','innodb_log_group_home_dir','innodb_doublewrite_dir','log_bin_basename','relay_log_basename','innodb_data_file_path')")
+            for line in variables.splitlines():
+                key, value = line.split('\t', 1)
+                paths = [part.split(':', 1)[0] for part in value.split(';')] if key == 'innodb_data_file_path' else [value]
+                if any(path and not inside(path) for path in paths):
+                    raise ValueError('MySQL 数据/日志位于冷备挂载之外，未执行切换: ' + key)
+            if any(not inside(path) for path in mysql('SELECT PATH FROM INFORMATION_SCHEMA.INNODB_DATAFILES').splitlines()):
+                raise ValueError('MySQL 外部表空间不在冷备边界内，未执行切换')
+            private_socket(mysql('SELECT @@socket'), datadir)
+            mysqlx = mysql("SHOW VARIABLES LIKE 'mysqlx_socket'")
+            if mysqlx:
+                private_socket(mysqlx.split('\t', 1)[1], datadir)
+        if service == 'redis' and container['State']['Running']:
+            values = command('docker', 'exec', identifiers[0], 'redis-cli', '--raw', 'CONFIG', 'GET', 'dir').splitlines()
+            if len(values) != 2 or (os.path.normpath(values[1]) != target and not os.path.normpath(values[1]).startswith(target + '/')):
+                raise ValueError('Redis 数据目录未通过持久化挂载核验，未执行切换')
+            socket = command('docker', 'exec', identifiers[0], 'redis-cli', '--raw', 'CONFIG', 'GET', 'unixsocket').splitlines()
+            if len(socket) != 2:
+                raise ValueError('Redis Unix socket 配置无法核验')
+            private_socket(socket[1], values[1])
+        mounts = [item for item in container['Mounts'] if item['Destination'] == target]
+        if len(mounts) != 1 or mounts[0]['Type'] not in {'bind', 'volume'} or not mounts[0].get('RW'):
+            raise ValueError('数据库缺少可恢复的 bind/named volume: ' + service)
+        for item in container['Mounts']:
+            destination = item['Destination'].rstrip('/')
+            if destination.startswith(target + '/'):
+                raise ValueError('数据库含未覆盖的嵌套数据挂载，未执行切换')
+        source = Path(mounts[0]['Source'])
+        if not source.is_absolute() or source == Path('/'):
+            raise ValueError('数据库数据路径无效')
+        for parent in [source, *source.parents]:
+            if parent.is_symlink() or not parent.is_dir():
+                raise ValueError('数据库数据路径包含符号链接或无效目录')
+        # Tar must not cross an unaccounted nested host mount or follow symlinks.
+        for current, directories, files in os.walk(source, followlinks=False):
+            if any(os.path.ismount(Path(current) / name) for name in directories):
+                raise ValueError('数据库数据目录含嵌套挂载')
+            for name in directories + files:
+                path = Path(current) / name
+                if path.is_symlink():
+                    link = os.readlink(path)
+                    # Absolute links are interpreted in the container namespace.
+                    resolved = (source / link[len(target):].lstrip('/')).resolve() if link == target or link.startswith(target + '/') else path.resolve()
+                    socket_names = {'mysql.sock': ('mysql.sock', 'mysqld.sock'), 'mysqlx.sock': ('mysqlx.sock',)}
+                    socket = service == 'mysql' and path.parent == source and name in socket_names and link in {
+                        prefix + item for prefix in ('/run/mysqld/', '/var/run/mysqld/') for item in socket_names[name]}
+                    if socket and container['State']['Running']:
+                        command('docker', 'exec', identifiers[0], 'test', '-S', target + '/' + name)
+                    if not socket and resolved != source and source not in resolved.parents:
+                        raise ValueError('数据库数据目录含外部符号链接，未执行切换')
+        records.append({'service': service, 'source': str(source), 'target': target,
+                        'type': mounts[0]['Type'], 'name': mounts[0].get('Name')})
+    return records
+
+
+def ensure_exclusive_data(compose, services, records):
+    ours = set()
+    for service in services:
+        ours.update(command(*compose, 'ps', '-a', '-q', service).split())
+    for identifier in command('docker', 'ps', '-q').split():
+        container = json.loads(command('docker', 'inspect', identifier))[0]
+        if container['Id'] in ours or identifier in ours:
+            continue
+        for mount in container['Mounts']:
+            source = mount.get('Source', '')
+            if mount.get('RW') and source and any(
+                    Path(source) == Path(item['source']) or Path(source) in Path(item['source']).parents or
+                    Path(item['source']) in Path(source).parents for item in records):
+                raise ValueError('数据库数据目录被其他运行容器共享，未执行切换')
+
+
+def prepare_data(directory, compose, services):
+    records = data_sources(compose, services, verify_active=True)
+    for item in records:
+        source = Path(item['source'])
+        if source == directory or source in directory.parents or directory in source.parents:
+            raise ValueError('数据库数据目录与恢复点重叠')
+    ensure_exclusive_data(compose, services, records)
+    # Disk budget is independent of the bounded configuration snapshots. Keep the
+    # complete cold backup; never prune it as part of an update.
+    needed = sum(int(command('du', '-sx', '--block-size=1', item['source']).split()[0]) for item in records)
+    if shutil.disk_usage(directory).free < needed * 2 + 64 * 1024 * 1024:
+        raise ValueError('数据库冷备空间不足，需要数据已用空间两倍及64MiB余量')
+    return records
+
+
+def snapshot_data(directory, compose, services, records):
+    if data_sources(compose, services, verify_active=True) != records:
+        raise ValueError('数据库挂载在预检期间发生变化')
+    ensure_exclusive_data(compose, services, records)
+    state = {'records': records, 'complete': False, 'stopped': True}
+    json_write(directory / 'data.json', state)
+    command(*compose, 'stop', '-t', '120', *services)
+    for service in services:
+        for identifier in command(*compose, 'ps', '-a', '-q', service).split():
+            if json.loads(command('docker', 'inspect', identifier))[0]['State']['Running']:
+                raise ValueError('服务未停止，拒绝数据库冷备')
+    if data_sources(compose, services) != records:
+        raise ValueError('数据库挂载在停止期间发生变化')
+    (directory / 'data').mkdir(mode=0o700)
+    for index, item in enumerate(records):
+        archive = directory / 'data' / (str(index) + '.tar')
+        command('tar', '--acls', '--xattrs', '--numeric-owner', '--sparse', '-cpf', str(archive), '-C', item['source'], '.')
+        command('tar', '--acls', '--xattrs', '--numeric-owner', '--compare', '-f', str(archive), '-C', item['source'])
+        item['sha256'] = file_digest(archive)
+        item['archive'] = archive.name
+    state['complete'] = True
+    json_write(directory / 'data.json', state)
+
+
+def file_digest(path):
+    result = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            result.update(block)
+    return result.hexdigest()
+
+
+def restore_data(directory, compose, services):
+    state = json.loads((directory / 'data.json').read_text(encoding='utf-8'))
+    if not state['complete']:
+        return  # No candidate starts until every archive has been verified.
+    command(*compose, 'stop', '-t', '120', *services)
+    for service in services:
+        for identifier in command(*compose, 'ps', '-a', '-q', service).split():
+            if json.loads(command('docker', 'inspect', identifier))[0]['State']['Running']:
+                raise ValueError('候选服务仍运行，拒绝恢复数据库')
+    records = state['records']
+    actual = data_sources(compose, services)
+    if actual != [{key: item[key] for key in ('service', 'source', 'target', 'type', 'name')} for item in records]:
+        raise ValueError('数据库挂载已改变，保留冷备并停止恢复')
+    ensure_exclusive_data(compose, services, records)
+    # Verify every backup before removing any live data.
+    for item in records:
+        archive = directory / 'data' / item['archive']
+        trusted(archive)
+        if file_digest(archive) != item['sha256']:
+            raise ValueError('数据库恢复点摘要不一致')
+        command('tar', '-tf', str(archive))
+    for item in records:
+        source = Path(item['source'])
+        for child in source.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                child.unlink()
+            else:
+                shutil.rmtree(child)
+        archive = directory / 'data' / item['archive']
+        command('tar', '--acls', '--xattrs', '--numeric-owner', '--same-owner', '--same-permissions', '-xpf', str(archive), '-C', str(source))
+        command('tar', '--acls', '--xattrs', '--numeric-owner', '--compare', '-f', str(archive), '-C', str(source))
+
+
+def execute_update(root, directory, component, prefix):
+    remember(root, directory)
+    model = json.loads(command('docker', 'compose', '--project-directory', str(root), 'config', '--format', 'json'))
+    compose = compose_file(directory, 'current.json', model)
+    rendered = json.loads(command(*compose, 'config', '--format', 'json'))
+    if rendered != model:
+        raise ValueError('Compose 配置快照回读不一致，未更新容器: ' + ', '.join(changed_paths(model, rendered)[:10]))
+    profiles = set(filter(None, os.environ.get('COMPOSE_PROFILES', '').split(',')))
+    services = [name for name, config in model['services'].items()
+                if not config.get('profiles') or '*' in profiles or profiles.intersection(config['profiles'])] if component == 'all' else ['nginx']
+    if 'nginx' not in model['services']:
+        raise ValueError('Compose 中缺少 nginx 服务')
+    if 'nginx' not in services:
+        raise ValueError('Nginx 所需的 Compose profile 未启用')
+    previous = {}
+    for name in services:
+        identifiers = command(*compose, 'ps', '-a', '-q', name).split()
+        containers = [json.loads(command('docker', 'inspect', item))[0] for item in identifiers]
+        if len({item['Image'] for item in containers}) > 1:
+            raise ValueError('同一服务使用多个镜像，无法建立完整恢复点: ' + name)
+        if len({item['State']['Running'] for item in containers}) > 1:
+            raise ValueError('服务副本运行状态不一致，无法建立完整恢复点: ' + name)
+        if containers:
+            if not re.fullmatch(r'sha256:[0-9a-f]{64}', containers[0]['Image']):
+                raise ValueError('容器镜像 ID 无效: ' + name)
+            previous[name] = {'image': containers[0]['Image'],
+                              'running': any(item['State']['Running'] for item in containers)}
+    json_write(directory / 'images.json', {'services': services, 'previous': previous})
+    if component == 'all':
+        snapshot_runtime(directory, compose, previous)
+    command(*compose, 'pull', *services)
+    stage = directory / 'candidate'
+    stage.mkdir(mode=0o700)
+    inventory_before = inventory(root)
+    for name in inventory_before:
+        path = stage / name
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.write_bytes((root / name).read_bytes())
+    state, messages = migrate(root, stage, prefix)
+    fresh_php = [name for name in ('php', 'php74') if name in services and name not in previous]
+    if component == 'all':
+        for relative in inventory_before:
+            if relative.startswith('conf.d/') and relative.endswith('.conf'):
+                path = stage / relative
+                text = path.read_text(encoding='utf-8')
+                for name in fresh_php:
+                    text = text.replace('fastcgi_pass ' + name + ':9000;',
+                                        'fastcgi_pass unix:/run/' + name + '/php-fpm.sock;')
+                path.write_text(text, encoding='utf-8')
+    candidate = copy.deepcopy(model)
+    covered = set()
+    mappings = {'nginx.conf': '/etc/nginx/nginx.conf', 'conf.d': '/etc/nginx/conf.d',
+                'stream.d': '/etc/nginx/stream.d', 'config/waf': '/etc/nginx/waf'}
+    for volume in candidate['services']['nginx'].get('volumes', []):
+        if volume.get('type') != 'bind':
+            continue
+        for relative, target in mappings.items():
+            if Path(volume['source']) == root / relative:
+                if relative != 'config/waf' and volume['target'] != target:
+                    raise ValueError('配置挂载目标与脚本约定不一致: ' + relative)
+                (stage / relative).parent.mkdir(parents=True, exist_ok=True)
+                if relative != 'nginx.conf':
+                    (stage / relative).mkdir(parents=True, exist_ok=True)
+                volume['source'] = str(stage / relative)
+                covered.add(relative)
+    if not {'nginx.conf', 'conf.d'} <= covered:
+        raise ValueError('需要 nginx.conf 和 conf.d 的独立 bind 挂载才能隔离验证候选配置')
+    preflight = compose_file(directory, 'candidate.json', candidate)
+    command(*preflight, 'run', '--rm', '--no-deps', '--entrypoint', 'nginx', 'nginx', '-t')
+    if inventory(root) != inventory_before:
+        raise ValueError('预检期间配置发生变化，未写入候选配置')
+    data_plan = prepare_data(directory, compose, services) if component == 'all' else None
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    for name, before in inventory_before.items():
+        if name == STATE:
+            continue
+        data = (stage / name).read_bytes()
+        if digest(data) != before['sha256']:
+            remember(root, directory)
+            install_configuration(root, directory, name, data, before['mode'])
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    journal['phase'] = 'switching'
+    json_write(directory / 'journal.json', journal)
+    if component == 'all':
+        snapshot_data(directory, compose, services, data_plan)
+        # Validate databases with no network or published ports while every
+        # application/ingress remains stopped. This is a complete model, not a
+        # merge override whose missing keys would retain published ports.
+        isolated = copy.deepcopy(model)
+        databases = [name for name in ('mysql', 'redis') if name in services]
+        for name in databases:
+            config = isolated['services'][name]
+            for key in ('networks', 'ports', 'expose', 'links', 'external_links', 'depends_on'):
+                config.pop(key, None)
+            config['network_mode'] = 'none'
+        isolated_compose = compose_file(directory, 'database-validation.json', isolated)
+        if databases:
+            command(*isolated_compose, 'up', '--no-start', '--force-recreate', '--no-deps', '--pull', 'never', *databases)
+            restore_runtime(directory, isolated_compose)
+            command(*isolated_compose, 'start', *databases)
+            wait_ready(isolated_compose, databases, check_nginx=False)
+            command(*isolated_compose, 'stop', '-t', '120', *databases)
+    command(*compose, 'up', '--no-start', '--force-recreate', '--no-deps', '--pull', 'never', *services)
+    if component == 'all':
+        restore_runtime(directory, compose)
+        # From the first opportunity to accept business writes, never silently
+        # discard acknowledged SQL/Redis changes by restoring the cold snapshot.
+        journal['phase'] = 'write-exposed'
+        json_write(directory / 'journal.json', journal)
+    command(*compose, 'start', *services)
+    if component == 'all' and fresh_php:
+        command('bash', str(directory / 'after-switch.sh'), *fresh_php)
+    wait_ready(compose, services)
+    remember(root, directory)
+    # Versions only advance after the real container passes validation/readiness.
+    data = (json.dumps(state, ensure_ascii=False) + '\n').encode()
+    journal['touched'][STATE] = {'sha256': digest(data), 'mode': 0o600}
+    json_write(directory / 'journal.json', journal)
+    write(root / STATE, data)
+    journal['phase'] = 'committed'
+    json_write(directory / 'journal.json', journal)
+    for message in messages:
+        print(message)
+    print('Nginx 配置与' + ('完整环境' if component == 'all' else '镜像') + '更新完成；恢复点: ' + str(directory))
+
+
+def wait_ready(compose, services, check_nginx=True):
+    for attempt in range(60):
+        ready = True
+        try:
+            for name in services:
+                identifiers = command(*compose, 'ps', '-a', '-q', name).split()
+                ready = ready and bool(identifiers)
+                for identifier in identifiers:
+                    state = json.loads(command('docker', 'inspect', identifier))[0]['State']
+                    ready = ready and state['Running'] and state.get('Health', {}).get('Status', 'healthy') == 'healthy'
+                    if state['Running'] and name == 'mysql':
+                        command('docker', 'exec', identifier, 'mysqladmin', 'ping', '--silent', '--connect-timeout=2')
+                        result = command('docker', 'exec', identifier, 'sh', '-c',
+                                         'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; '
+                                         'exec mysql -uroot --batch --skip-column-names -e "$1"', 'sh', 'SELECT 1')
+                        if result.strip() != '1':
+                            raise RuntimeError('MySQL 原凭据 SQL 探针未通过')
+                    if state['Running'] and name in {'php', 'php74'}:
+                        command('docker', 'exec', identifier, 'php-fpm', '-t')
+                    if state['Running'] and name == 'redis':
+                        if command('docker', 'exec', identifier, 'redis-cli', '--raw', 'PING').strip() != 'PONG':
+                            raise RuntimeError('Redis 未通过隔离就绪检查')
+            if check_nginx:
+                command('docker', 'exec', 'nginx', 'nginx', '-t')
+                ready = ready and 'nginx: worker process' in command('docker', 'top', 'nginx', '-eo', 'pid,args')
+            if ready:
+                return
+        except (RuntimeError, subprocess.TimeoutExpired):
+            pass
+        time.sleep(1)
+    raise RuntimeError('更新后的服务未通过就绪检查')
+
+
+def rollback(root, directory):
+    journal = json.loads((directory / 'journal.json').read_text(encoding='utf-8'))
+    if journal['phase'] == 'committed':
+        return
+    if journal['phase'] == 'write-exposed':
+        raise RuntimeError('候选数据库已进入业务写入阶段，已保留当前数据、镜像及冷备恢复点；为防止丢失已确认写入，不自动回退。需要检查并继续修复或针对精确冷备人工恢复: ' + str(directory))
+    restore_files(root, directory)
+    images = directory / 'images.json'
+    if journal['phase'] == 'switching' and images.exists():
+        data = json.loads(images.read_text(encoding='utf-8'))
+        # current.json is a literal-safe Compose file; override it without re-encoding.
+        override = {'services': {name: {'image': value['image']} for name, value in data['previous'].items()}}
+        json_write(directory / 'rollback.json', override)
+        compose = ['docker', 'compose', '--project-directory', str(root), '-f', str(directory / 'current.json')]
+        if (directory / 'data.json').exists():
+            restore_data(directory, compose, data['services'])
+        existing = list(data['previous'])
+        if existing:
+            command(*compose, '-f', str(directory / 'rollback.json'), 'up', '--no-start', '--force-recreate', '--no-deps', '--pull', 'never', *existing)
+            if (directory / 'runtime.json').exists():
+                restore_runtime(directory, compose)
+            running = [name for name in existing if data['previous'][name]['running']]
+            stopped = [name for name in existing if not data['previous'][name]['running']]
+            if running:
+                command(*compose, 'start', *running)
+            if 'nginx' in running:
+                wait_ready(compose, running)
+            if stopped:
+                command(*compose, 'stop', *stopped)
+        created = [name for name in data['services'] if name not in data['previous']]
+        if created:
+            command(*compose, 'rm', '-s', '-f', *created)
+    elif journal['touched']:
+        # WAF may already have reloaded the old container before candidate preflight.
+        command('docker', 'exec', 'nginx', 'nginx', '-t')
+        command('docker', 'exec', 'nginx', 'nginx', '-s', 'reload')
+    journal['phase'] = 'rolled-back'
+    json_write(directory / 'journal.json', journal)
+    print('更新失败，已恢复更新前配置和容器状态；已成功的独立 WAF 刷新保留；恢复点: ' + str(directory), file=sys.stderr)
+
+
+def main():
+    action, root, directory, component, prefix = sys.argv[1:]
+    root, directory = Path(root), Path(directory)
+    os.umask(0o077)
+    for parent in [root, *root.parents, directory, *directory.parents]:
+        trusted(parent, directory=True)
+    if directory.parent != root / 'backups/nginx-update':
+        raise ValueError('更新恢复点不在约定目录')
+    if component not in {'nginx', 'all'}:
+        raise ValueError('不支持的更新组件')
+    if action == 'prepare':
+        snapshot(root, directory)
+    elif action == 'update':
+        execute_update(root, directory, component, prefix)
+    elif action == 'remember':
+        remember(root, directory)
+    elif action == 'rollback':
+        rollback(root, directory)
+    else:
+        raise ValueError('不支持的配置迁移动作')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print('Nginx 更新失败: ' + str(error), file=sys.stderr)
+        sys.exit(1)
+NGINX_CONFIG_UPDATE
+}
+
+nginx_update_transaction() {
   (
-  local ldnmp_pods="nginx" previous_image existing_ids directory interpreter ready=false
+  local inherited_lock_fd="${lock_fd:-${http_lock_fd:-}}"
+  local component="${1:-nginx}" directory lock_fd prepared=false rc
   cd /home/web/ || return 1
-  shared_waf_refresh || return 1
-  if previous_image=$(docker inspect -f '{{.Image}}' "$ldnmp_pods" 2>/dev/null); then
-    [[ "$previous_image" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
-  else
-    # Only a confirmed absent container is a first installation, not a daemon error.
-    existing_ids=$(docker container ls -a --filter 'name=^/nginx$' --format '{{.ID}}') || return 1
-    [ -z "$existing_ids" ] || return 1
-    previous_image=""
-  fi
-  interpreter=$(command -v python3) || { echo "Nginx 安全更新需要 Python 3 保存完整 Compose 配置" >&2; return 1; }
+  command -v python3 >/dev/null 2>&1 && python3 -I -c 'import sys; raise SystemExit(sys.version_info < (3,8))' || {
+    echo "Nginx 配置更新需要 Python 3.8+" >&2; return 1;
+  }
+  command -v flock >/dev/null 2>&1 || { echo "Nginx 配置更新需要 flock" >&2; return 1; }
   umask 077
-  directory=$(mktemp -d /home/web/.nginx-update.XXXXXX) || return 1
-  trap 'rm -f -- "$directory/current.json" "$directory/rendered.json" "$directory/rollback.json"; rmdir -- "$directory" 2>/dev/null || true' EXIT
-  # Freeze the actual merged model, including default/COMPOSE_FILE overrides.
-  docker compose config --format json > "$directory/current.json" || return 1
-  local -a compose=(docker compose --project-directory /home/web -f "$directory/current.json")
-  "${compose[@]}" config --format json > "$directory/rendered.json" || return 1
-  # Refuse Compose versions that cannot round-trip their canonical data model.
-  "$interpreter" -I - "$directory/current.json" "$directory/rendered.json" <<'NGINX_COMPOSE'
-import json,sys
-with open(sys.argv[1]) as stream:before=json.load(stream)
-with open(sys.argv[2]) as stream:after=json.load(stream)
-if before!=after:raise SystemExit('Compose 配置快照回读不一致，未更新容器')
-NGINX_COMPOSE
-  [ "$?" -eq 0 ] || return 1
-  # Preflight and recovery use the same frozen model, retaining the old image.
-  "${compose[@]}" pull "$ldnmp_pods" || return 1
-  "${compose[@]}" run --rm --no-deps --entrypoint nginx "$ldnmp_pods" -t || return 1
-  if "${compose[@]}" up -d --force-recreate "$ldnmp_pods" && nginx_wait_ready; then ready=true; fi
-  if [ "$ready" != true ]; then
-    if [ -z "$previous_image" ]; then
-      echo "Nginx 首次安装未通过就绪核验，没有旧镜像可恢复；请检查容器日志" >&2
-      return 86
-    fi
-    printf '{"services":{"nginx":{"image":"%s"}}}\n' "$previous_image" > "$directory/rollback.json"
-    if "${compose[@]}" -f "$directory/rollback.json" up -d --force-recreate --pull never "$ldnmp_pods" && nginx_wait_ready; then
-      echo "Nginx 更新失败，已恢复并核验旧镜像；请检查候选镜像日志" >&2
-    else
-      echo "Nginx 更新失败，旧镜像恢复未能通过核验；请检查容器日志" >&2
-      return 86
-    fi
-    return 1
+  # Reuse KPanel's already-held open file description; reopening its lock would
+  # deadlock the nested update. Direct CLI updates acquire the same environment lock.
+  if [[ "$inherited_lock_fd" =~ ^[0-9]+$ ]] &&
+     [ "$(readlink "/proc/$BASHPID/fd/$inherited_lock_fd")" = /run/lock/kejilion-web-environment.lock ]; then
+    flock -n "$inherited_lock_fd" || return 75
+  else
+    mkdir -p /run/lock || return 1
+    [ ! -L /run/lock/kejilion-web-environment.lock ] || return 1
+    exec {lock_fd}>>/run/lock/kejilion-web-environment.lock || return 1
+    flock -n "$lock_fd" || { echo "已有网站或 LDNMP 环境任务正在执行" >&2; return 75; }
   fi
-  # Preserve the shared WAF minute rotation and unrelated administrator jobs.
-  (crontab -l 2>/dev/null | grep -Fvx '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf';
-   printf '%s\n' '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf') | crontab - || return 1
-  docker exec nginx chown -R nginx:nginx /var/www/html || return 1
-  docker exec nginx mkdir -p /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
-  docker exec nginx chown -R nginx:nginx /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
-  send_stats "更新$ldnmp_pods"
-  echo "更新${ldnmp_pods}完成"
+  [ ! -L /home/web/backups ] && [ ! -L /home/web/backups/nginx-update ] || return 1
+  # WAF has its own complete transaction. Its successful refresh remains applied
+  # if a later image/config update fails; never claim unrelated SSH edits as ours.
+  shared_waf_refresh || return $?
+  mkdir -p /home/web/backups/nginx-update || return 1
+  directory=$(mktemp -d /home/web/backups/nginx-update/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX) || return 1
+  trap 'rc=$?; trap - EXIT; if [ "$prepared" = true ]; then
+    nginx_config_update rollback /home/web "$directory" "$component" "${gh_proxy:-https://}" || {
+      echo "自动恢复未完成，请使用保留的恢复点检查配置和容器: $directory" >&2; rc=86;
+    };
+  else rmdir -- "$directory" 2>/dev/null || true; fi; exit "$rc"' EXIT
+  nginx_config_update prepare /home/web "$directory" "$component" "${gh_proxy:-https://}" || return 1
+  prepared=true
+  if [ "$component" = all ]; then
+    { printf '%s\n' 'set -e'; declare -f fix_phpfpm_conf;
+      printf '%s\n' 'for component in "$@"; do' \
+        '  fix_phpfpm_conf "$component" container-only' \
+        '  docker restart "$component" >/dev/null' \
+        '  ready=false' \
+        '  for attempt in {1..20}; do if docker exec "$component" test -S "/run/$component/php-fpm.sock"; then ready=true; break; fi; sleep 1; done' \
+        '  [ "$ready" = true ] || exit 1' \
+        'done' \
+        'docker exec nginx nginx -t' \
+        'docker exec nginx nginx -s reload';
+    } > "$directory/after-switch.sh" || return 1
+  fi
+  nginx_config_update update /home/web "$directory" "$component" "${gh_proxy:-https://}" || return 1
+  send_stats "更新$component" || true
   )
+}
+
+nginx_upgrade() {
+  nginx_update_transaction nginx
+}
+
+ldnmp_upgrade_all() {
+  nginx_update_transaction all
 }
 
 
@@ -5774,6 +6703,13 @@ install_docker
 install_certbot
 install_ldnmp_conf
 nginx_upgrade || return $?
+# First-install housekeeping stays here; routine updates preserve existing jobs
+# and website ownership instead of reapplying installation defaults.
+(crontab -l 2>/dev/null | grep -Fvx '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf';
+ printf '%s\n' '0 2 * * * docker exec nginx apk add logrotate && docker exec nginx logrotate -f /etc/logrotate.conf') | crontab - || return 1
+docker exec nginx chown -R nginx:nginx /var/www/html || return 1
+docker exec nginx mkdir -p /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
+docker exec nginx chown -R nginx:nginx /var/cache/nginx/proxy /var/cache/nginx/fastcgi || return 1
 clear
 local nginx_version=$(docker exec nginx nginx -v 2>&1)
 local nginx_version=$(echo "$nginx_version" | grep -oP "nginx/\K[0-9]+\.[0-9]+\.[0-9]+")
@@ -14718,7 +15654,9 @@ fix_phpfpm_conf() {
 	docker exec "$container_name" sh -c "echo -e '\nlisten = /run/$container_name/php-fpm.sock\nlisten.owner = www-data\nlisten.group = www-data\nlisten.mode = 0777' >> /usr/local/etc/php-fpm.d/www.conf"
 	docker exec "$container_name" sh -c "rm -f /usr/local/etc/php-fpm.d/zz-docker.conf"
 
-	find /home/web/conf.d/ -type f -name "*.conf" -exec sed -i "s#fastcgi_pass ${container_name}:9000;#fastcgi_pass unix:/run/${container_name}/php-fpm.sock;#g" {} \;
+	if [ "${2:-}" != container-only ]; then
+		find /home/web/conf.d/ -type f -name "*.conf" -exec sed -i "s#fastcgi_pass ${container_name}:9000;#fastcgi_pass unix:/run/${container_name}/php-fpm.sock;#g" {} \;
+	fi
 
 }
 
@@ -15260,8 +16198,7 @@ ldnmp_update_action() {
 			docker compose up -d --force-recreate php >/dev/null 2>&1 || return 86
 			return "$rc" ;;
 		all)
-			cd /home/web || return 1
-			docker compose pull && docker compose up -d --force-recreate || return 86
+			ldnmp_upgrade_all
 			;;
 		*) echo "不支持的更新组件" >&2; return 2 ;;
 	esac
@@ -16492,14 +17429,7 @@ linux_ldnmp() {
 				read -e -p "$(echo -e "${gl_huang}提示: ${gl_bai}长时间不更新环境的用户，请慎重更新LDNMP环境，会有数据库更新失败的风险。确定更新LDNMP环境吗？(Y/N): ")" choice
 				case "$choice" in
 				  [Yy])
-					send_stats "完整更新LDNMP环境"
-					cd /home/web/
-					docker compose down --rmi all
-
-					install_dependency
-					install_docker
-					install_certbot
-					install_ldnmp
+					ldnmp_upgrade_all
 					;;
 				  *)
 					;;
