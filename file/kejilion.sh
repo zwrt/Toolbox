@@ -3785,7 +3785,7 @@ kpanel_app_delete_sites() {
 
 
 shared_waf_revision() {
-	printf '%s\n' '4269829b5be389aa08c22a0c19915a5a451a7e2f'
+	printf '%s\n' 'd8c178df8c851419087194178314473ec6a6a478'
 }
 
 shared_waf_manifest() {
@@ -3793,7 +3793,7 @@ shared_waf_manifest() {
 832eef6992bd92cbe090ecb13f32b361b5a4e49b023d39417a5a9bc46ed7a4a7  configure.py
 f00fa5846217315b9f0905ddab9c7104959e77f0b1653fb4ffbf5ff48121df9a  policy.py
 99071ba780da3c7a843fda8aa348dba87fc9ebd022bb7cbbca2b8fa33f69a0a9  nginx_edit.py
-5537bbf5aeb44865562484ea7ef403d809d68a6dbd5c7972d6dbc5b58775b1f1  ban.py
+0025f9596e234c9f64b0c799318e44e00f3271f313335d0ddb152e11834185ee  ban.py
 aee6fd651ceb6441acce6dc6b510e504d7127b2bba1ce84ca361655590c615b0  example-policy.json
 e6be6df199bc4ad607b6bcd7273a62a4884e5aa841786db1d8d5a2284f573179  cloudflare-ips.json
 6fd82147b99201beebe7b1a983f146e5c23ade7f9454ac883830848b7f753e30  legacy-jails.local
@@ -4489,10 +4489,13 @@ web_security() {
 
 				  11)
 					  install nano
-					  echo "调整 waf-attack / waf-rate 的 maxretry、findtime、bantime（60~3600秒）；不修改过滤器和动作。"
+					  echo "调整 waf-attack / waf-rate 的 maxretry、findtime、bantime（首次封禁秒数）；不修改过滤器和动作。"
+					  echo "默认递进：10分钟、1小时、6小时、24小时；实际时间以各规则配置为准。"
+					  echo "bantime.increment=false 可关闭该规则递进；历史保留时间由 Fail2Ban 数据库配置决定。"
 					  nano /etc/fail2ban/jail.d/zz-waf-managed.local
 					  fail2ban-client -t || { echo "配置检查失败" >&2; continue; }
-					  f2b_status
+					  shared_waf ban-install || { echo "防护参数未完整应用，请检查上方错误并修正配置。" >&2; continue; }
+					  fail2ban-client status
 					  break
 					  ;;
 
